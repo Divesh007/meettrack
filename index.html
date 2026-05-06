@@ -7,7 +7,6 @@
 <script src="https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-app-compat.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-auth-compat.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-firestore-compat.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-storage-compat.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -152,14 +151,13 @@ var firebaseConfig = {
   apiKey: "AIzaSyAlr2Rn4cGBKfMM9mcgKJ3H9rj9tPW5kD0",
   authDomain: "meettrack-1bd7e.firebaseapp.com",
   projectId: "meettrack-1bd7e",
-  storageBucket: "meettrack-1bd7e.appspot.com",
+  storageBucket: "meettrack-1bd7e.firebasestorage.app",
   messagingSenderId: "199366587854",
   appId: "1:199366587854:web:3a94a783f60a6e28fbe79f"
 };
 firebase.initializeApp(firebaseConfig);
 var auth    = firebase.auth();
 var db      = firebase.firestore();
-var storage = firebase.storage();
 
 // ── STATE ──────────────────────────────────────
 var ST = {
@@ -202,25 +200,60 @@ function openGmail(to, subject, body){
   window.open(url, '_blank');
 }
 
+// View or download a base64 file
 
-// ── FILE UPLOAD ───────────────────────────
+// Attachment cache - stores base64 data indexed by key
+window._attCache = {};
+window._dlFile = function(btn){
+  var key = btn.getAttribute('data-key');
+  var name = btn.getAttribute('data-name');
+  var att = window._attCache[key];
+  if(!att){ toast('File data not found. Please refresh.','err'); return; }
+  viewFile(att.url, att.name||name);
+};
+function cacheAtt(key, att){ window._attCache[key] = att; return key; }
+window.viewFile = function(url, name){
+  try { url = decodeURIComponent(url); } catch(e){}
+  if(url.startsWith('data:image')){
+    var w = window.open('','_blank');
+    if(w) w.document.write('<html><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="'+url+'" style="max-width:100%;max-height:100vh;object-fit:contain"></body></html>');
+  } else {
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = name||'attachment';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+}
+
+
+// ── FILE → BASE64 (stored in Firestore, no Storage needed) ──
 function uploadFile(file, path, onProgress){
   return new Promise(function(resolve, reject){
-    var safeName = Date.now()+'_'+file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
-    var ref = storage.ref().child(path+'/'+safeName);
-    var task = ref.put(file);
-    task.on('state_changed',
-      function(snap){
-        var pct = Math.round(snap.bytesTransferred/snap.totalBytes*100);
-        if(onProgress) onProgress(pct);
-      },
-      function(err){ reject(err); },
-      function(){
-        task.snapshot.ref.getDownloadURL().then(function(url){
-          resolve({name:file.name, url:url, size:file.size, uploadedBy:ST.profile?ST.profile.name:'Unknown'});
-        });
+    if(file.size > 900000){
+      reject(new Error('File too large. Please use files under 900KB.'));
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var base64 = e.target.result; // data:type;base64,...
+      resolve({
+        name: file.name,
+        url: base64,
+        size: file.size,
+        type: file.type,
+        uploadedBy: ST.profile ? ST.profile.name : 'Unknown',
+        uploadedAt: new Date().toLocaleDateString('en-IN')
+      });
+    };
+    reader.onerror = function(){ reject(new Error('Failed to read file')); };
+    reader.onprogress = function(e){
+      if(e.lengthComputable && onProgress){
+        onProgress(Math.round(e.loaded/e.total*100));
       }
-    );
+    };
+    reader.readAsDataURL(file);
   });
 }
 // ── FIREBASE LOAD ─────────────────────────────
@@ -500,7 +533,7 @@ function meetingPage(){
         var attachHTML = atts.map(function(f,fi){
           return '<div style="display:flex;align-items:center;gap:8px;padding:5px 10px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:7px;margin-top:5px;font-size:11px">'+
           '<span>📎</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+f.name+'</span>'+
-          '<a href="'+f.url+'" target="_blank" style="color:#2563eb;font-weight:600;font-size:11px;text-decoration:none">View/Download</a>'+
+          '<button onclick="viewFile(f.url,f.name)" style="color:#2563eb;font-weight:600;font-size:11px;text-decoration:none;background:#2563eb;color:#fff;border:none;cursor:pointer;border-radius:7px;padding:5px 11px;font-size:11px;font-weight:700">⬇ View/Download</button>'+
           '</div>';
         }).join('');
         return '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:0;margin-bottom:8px;overflow:hidden">'+
@@ -545,12 +578,13 @@ function meetingPage(){
           '<div style="margin-bottom:12px">'+
           '<div class="field-label" style="margin-bottom:6px">📎 Attachments / Proof ('+(t.attachments||[]).length+')</div>'+
           (t.attachments||[]).map(function(f,fi){
+            var key='task-'+i+'-'+fi; window._attCache[key]=f;
             return '<div style="display:flex;align-items:center;gap:9px;padding:8px 11px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;margin-bottom:5px">'+
             '<span style="font-size:16px">📎</span>'+
             '<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600;color:#0f1535;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+f.name+'</div>'+
             (f.uploadedBy?'<div style="font-size:10px;color:#6b7280">Uploaded by '+f.uploadedBy+'</div>':'')+
             '</div>'+
-            '<a href="'+f.url+'" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:5px 11px;background:#2563eb;color:#fff;border-radius:7px;font-size:11px;font-weight:700;text-decoration:none;flex-shrink:0">⬇ View/Download</a>'+
+            '<button onclick="viewFile(f.url,f.name)" style="display:inline-flex;align-items:center;gap:4px;padding:5px 11px;background:#2563eb;color:#fff;border-radius:7px;font-size:11px;font-weight:700;text-decoration:none;flex-shrink:0;background:#2563eb;color:#fff;border:none;cursor:pointer;border-radius:7px;padding:5px 11px;font-size:11px;font-weight:700">⬇ View/Download</button>'+
             '</div>';
           }).join('')+
           '</div>'
@@ -633,13 +667,14 @@ function myTasksPage(){
     (t.lastComment?'<div class="task-note" style="margin-bottom:10px">"'+t.lastComment+'" — <em>'+(t.lastUpdatedBy||'?')+'</em></div>':'')+
     ((t.attachments&&t.attachments.length)?
       '<div style="margin-bottom:12px"><div class="field-label" style="margin-bottom:6px">📎 Attachments / Proof ('+(t.attachments||[]).length+')</div>'+
-      (t.attachments||[]).map(function(f){
+      (t.attachments||[]).map(function(f,fi){
+        var key='mt-'+t.mid+'-'+t.ti+'-'+fi; window._attCache[key]=f;
         return '<div style="display:flex;align-items:center;gap:9px;padding:8px 11px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;margin-bottom:5px">'+
         '<span style="font-size:16px">📎</span>'+
         '<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600;color:#0f1535;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+f.name+'</div>'+
         (f.uploadedBy?'<div style="font-size:10px;color:#6b7280">Uploaded by '+f.uploadedBy+'</div>':'')+
         '</div>'+
-        '<a href="'+f.url+'" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:5px 11px;background:#2563eb;color:#fff;border-radius:7px;font-size:11px;font-weight:700;text-decoration:none;flex-shrink:0">⬇ View/Download</a>'+
+        '<button onclick="viewFile(f.url,f.name)" style="display:inline-flex;align-items:center;gap:4px;padding:5px 11px;background:#2563eb;color:#fff;border-radius:7px;font-size:11px;font-weight:700;text-decoration:none;flex-shrink:0;background:#2563eb;color:#fff;border:none;cursor:pointer;border-radius:7px;padding:5px 11px;font-size:11px;font-weight:700">⬇ View/Download</button>'+
         '</div>';
       }).join('')+'</div>'
     :'')+
@@ -691,7 +726,7 @@ function dashPage(){
     '<td style="color:#9ca3af;font-size:11px">'+(t.lastUpdatedBy||'-')+'</td>'+
     '<td>'+((t.attachments&&t.attachments.length)?
       (t.attachments||[]).map(function(f){
-        return '<a href="'+f.url+'" target="_blank" style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;background:#eff6ff;color:#2563eb;border-radius:5px;font-size:10px;font-weight:700;text-decoration:none;margin:1px 2px">📎 '+f.name.slice(0,18)+(f.name.length>18?'...':f.name.slice(18))+'</a>';
+        return (function(key){ window._attCache[key]=f; return '<button data-key="'+key+'" data-name="'+f.name+'" onclick="window._dlFile&&_dlFile(this)" style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;background:#eff6ff;color:#2563eb;border-radius:5px;font-size:10px;font-weight:700;border:none;cursor:pointer;margin:1px 2px">📎 '+f.name.slice(0,18)+(f.name.length>18?'...':f.name.slice(18))+'</button>'; })('dash-'+t.mid+'-'+i);
       }).join('')
     :'<span style="color:#d1d5db;font-size:11px">—</span>')+
     '</td>'+
@@ -813,7 +848,9 @@ window.addAtt = function(){
 window.attachToMin = function(input, minIdx){
   if(!input.files||!input.files.length) return;
   var files = Array.from(input.files);
-  toast('Uploading '+files.length+' file(s)...','inf');
+  var oversize = files.filter(function(f){return f.size>900000;});
+  if(oversize.length){ toast('File too large! Max size is 900KB per file.','err'); return; }
+  toast('Processing '+files.length+' file(s)...','inf');
   var btn = input.nextElementSibling||input.parentElement;
   Promise.all(files.map(function(f){
     return uploadFile(f, 'meetings/'+ST.cur.id+'/min-'+minIdx);
@@ -842,7 +879,9 @@ window.attachToMin = function(input, minIdx){
 window.attachToTask = function(input, mid, ti){
   if(!input.files||!input.files.length) return;
   var files = Array.from(input.files);
-  toast('Uploading proof...','inf');
+  var oversize = files.filter(function(f){return f.size>900000;});
+  if(oversize.length){ toast('File too large! Max size is 900KB per file.','err'); return; }
+  toast('Processing proof...','inf');
   var m = ST.meetings.find(function(x){return x.id===mid;}); if(!m) return;
   Promise.all(files.map(function(f){
     return uploadFile(f, 'tasks/'+mid+'/'+ti);
