@@ -369,9 +369,73 @@ function authHTML(){
   (!isL?'<div class="auth-field"><label>Full Name</label><input id="a-name" type="text" placeholder="Your full name"></div>':'')+
   '<button class="btn btn-or btn-full" onclick="doAuth()">'+(isL?'Sign In →':'Create Account →')+'</button>'+
   '<div class="auth-link">'+(isL?'No account? <span onclick="switchAuth()">Create employee account</span>':'Have account? <span onclick="switchAuth()">Sign in</span>')+'</div>'+
+  (isL?'<div style="text-align:center;margin-top:10px"><span onclick="forgotPassword()" style="color:#6b7280;font-size:12px;cursor:pointer;text-decoration:underline">Forgot password?</span></div>':'')+
   '</div></div>';
 }
 window.setRole=function(r){ST.aRole=r;ST.aErr='';render();};
+
+window.forgotPassword = function(){
+  // Show a small input to enter email
+  document.querySelectorAll('.modal-bg').forEach(function(m){m.remove();});
+  var d = document.createElement('div');
+  d.className = 'modal-bg';
+  d.innerHTML =
+    '<div class="modal-card" style="max-width:380px">' +
+    '<div class="modal-title">Reset Password</div>' +
+    '<p style="font-size:13px;color:#6b7280;margin-bottom:16px">Enter your email address and we will send you a link to reset your password.</p>' +
+    '<div class="modal-field"><label>Email Address</label><input class="inp" id="fp-email" type="email" placeholder="your@email.com"></div>' +
+    '<div id="fp-msg" style="display:none;padding:10px 13px;border-radius:8px;font-size:12px;margin-bottom:10px"></div>' +
+    '<div class="modal-actions">' +
+    '<button class="btn btn-gy btn-sm" id="fp-cancel">Cancel</button>' +
+    '<button class="btn btn-or btn-sm" id="fp-send">Send Reset Link</button>' +
+    '</div></div>';
+  document.body.appendChild(d);
+  d.querySelector('#fp-cancel').onclick = function(){ d.remove(); };
+  d.onclick = function(e){ if(e.target===d) d.remove(); };
+  setTimeout(function(){ var f=d.querySelector('#fp-email'); if(f) f.focus(); }, 100);
+
+  d.querySelector('#fp-send').onclick = function(){
+    var email = (d.querySelector('#fp-email')||{}).value||'';
+    email = email.trim();
+    var msg = d.querySelector('#fp-msg');
+    var btn = d.querySelector('#fp-send');
+
+    if(!email){
+      msg.style.display='block';
+      msg.style.background='#fff5f5';
+      msg.style.border='1px solid #fca5a5';
+      msg.style.color='#991b1b';
+      msg.textContent='Please enter your email address.';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+
+    auth.sendPasswordResetEmail(email).then(function(){
+      msg.style.display = 'block';
+      msg.style.background = '#f0fdf4';
+      msg.style.border = '1px solid #bbf7d0';
+      msg.style.color = '#166534';
+      msg.innerHTML = '✓ Reset link sent to <strong>'+email+'</strong><br><span style="font-size:11px">Check your inbox and spam folder.</span>';
+      btn.style.display = 'none';
+      d.querySelector('#fp-cancel').textContent = 'Close';
+    }).catch(function(e){
+      msg.style.display = 'block';
+      msg.style.background = '#fff5f5';
+      msg.style.border = '1px solid #fca5a5';
+      msg.style.color = '#991b1b';
+      msg.textContent = e.code==='auth/user-not-found'
+        ? 'No account found with this email.'
+        : e.code==='auth/invalid-email'
+        ? 'Please enter a valid email address.'
+        : e.message;
+      btn.disabled = false;
+      btn.textContent = 'Send Reset Link';
+    });
+  };
+};
+
 window.switchAuth=function(){ST.aMode=ST.aMode==='login'?'register':'login';ST.aErr='';render();};
 window.doAuth=function(){
   var email=(document.getElementById('a-email')||{}).value||'';
