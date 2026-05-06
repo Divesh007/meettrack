@@ -1,0 +1,1114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NTF MeetTrack</title>
+<script src="https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-app-compat.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-auth-compat.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-firestore-compat.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-storage-compat.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;font-size:14px;color:#1a1a2e;min-height:100vh}
+.btn{display:inline-flex;align-items:center;gap:5px;padding:9px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;font-family:inherit;border:none;transition:opacity .15s}
+.btn:hover{opacity:.85}
+.btn-or{background:#e8600a;color:#fff}.btn-nv{background:#0f1535;color:#fff}
+.btn-gr{background:#16a34a;color:#fff}.btn-rd{background:#dc2626;color:#fff}
+.btn-gy{background:#6b7280;color:#fff}.btn-bl{background:#2563eb;color:#fff}
+.btn-pu{background:#7c3aed;color:#fff}
+.btn-sm{padding:6px 12px!important;font-size:12px!important}
+.btn-xs{padding:4px 9px!important;font-size:11px!important}
+.btn-full{width:100%;justify-content:center;padding:13px 16px;font-size:14px}
+/* AUTH */
+.auth-page{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0a0f2e,#0f1535);padding:20px}
+.auth-box{background:#fff;border-radius:16px;padding:36px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+.auth-brand{text-align:center;margin-bottom:24px}
+.auth-ntf{font-size:11px;font-weight:700;letter-spacing:3px;color:#e8600a;text-transform:uppercase;margin-bottom:6px}
+.auth-logo{font-size:30px;font-weight:700;color:#0f1535}
+.auth-logo span{color:#e8600a}
+.auth-sub{font-size:13px;color:#888;margin-top:4px}
+.role-tabs{display:flex;gap:4px;background:#f5f5f5;padding:4px;border-radius:10px;margin-bottom:20px}
+.role-tab{flex:1;padding:9px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;color:#666;font-family:inherit;transition:all .15s}
+.role-tab.active{background:#0f1535;color:#fff;font-weight:700}
+.hint{background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 13px;font-size:12px;color:#1e40af;margin-bottom:16px;line-height:1.7}
+.auth-field{margin-bottom:14px}
+.auth-field label{display:block;font-size:11px;font-weight:700;color:#374151;margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px}
+.auth-field input{width:100%;padding:11px 13px;border:2px solid #e5e7eb;border-radius:9px;background:#f9fafb;color:#111;font-size:14px;font-family:inherit}
+.auth-field input:focus{outline:none;border-color:#0f1535;background:#fff}
+.auth-err{background:#fff5f5;border:1px solid #fca5a5;color:#991b1b;font-size:12px;padding:10px 13px;border-radius:8px;margin-bottom:14px}
+.auth-link{text-align:center;font-size:13px;color:#777;margin-top:14px}
+.auth-link span{color:#e8600a;cursor:pointer;font-weight:700;text-decoration:underline}
+/* LAYOUT */
+.app-layout{display:flex;min-height:100vh}
+.sidebar{width:210px;background:#0f1535;display:flex;flex-direction:column;position:fixed;top:0;left:0;height:100vh;overflow-y:auto;z-index:50}
+.sb-brand{padding:18px 14px 16px;border-bottom:1px solid rgba(255,255,255,.1)}
+.sb-ntf{font-size:9px;font-weight:700;letter-spacing:2.5px;color:#e8600a;text-transform:uppercase;margin-bottom:4px}
+.sb-name{font-size:17px;font-weight:700;color:#fff;letter-spacing:-.3px}
+.sb-name span{color:#e8600a}
+.sb-sub{font-size:10px;color:rgba(255,255,255,.3);margin-top:2px}
+.sb-section{font-size:9px;font-weight:700;color:rgba(255,255,255,.3);padding:12px 14px 3px;text-transform:uppercase;letter-spacing:1.5px}
+.nav-item{padding:10px 14px;cursor:pointer;font-size:13px;color:rgba(255,255,255,.55);border-left:3px solid transparent;display:flex;align-items:center;gap:9px;font-weight:500;transition:all .15s}
+.nav-item:hover{background:rgba(255,255,255,.07);color:#fff}
+.nav-item.active{background:rgba(232,96,10,.15);color:#fff;border-left-color:#e8600a;font-weight:600}
+.sb-user{margin-top:auto;padding:14px;border-top:1px solid rgba(255,255,255,.1);display:flex;align-items:center;gap:9px}
+.sb-av{width:34px;height:34px;border-radius:9px;background:#e8600a;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0}
+.sb-uname{font-size:12px;font-weight:600;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sb-urole{font-size:10px;color:rgba(255,255,255,.4);text-transform:capitalize}
+.sb-logout{width:28px;height:28px;background:rgba(255,255,255,.1);border-radius:7px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:rgba(255,255,255,.4);font-size:16px;flex-shrink:0;border:none}
+.sb-logout:hover{background:rgba(255,255,255,.2);color:#fff}
+.main-content{flex:1;margin-left:210px;padding:28px;background:#f0f2f5;min-height:100vh}
+/* COMMON */
+.page-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px}
+.page-title{font-size:24px;font-weight:700;color:#0f1535;letter-spacing:-.3px}
+.page-sub{font-size:13px;color:#888;margin-top:4px}
+.back-link{display:inline-flex;align-items:center;gap:6px;color:#e8600a;cursor:pointer;font-weight:600;font-size:13px;margin-bottom:16px;padding:7px 14px;background:#fff7ed;border-radius:8px;border:1px solid #fed7aa}
+.card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:18px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.card-label{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;color:#0f1535;text-transform:uppercase;letter-spacing:.6px}
+.card-label::before{content:'';width:3px;height:14px;background:#e8600a;border-radius:2px;flex-shrink:0}
+.inp{width:100%;padding:9px 12px;border:1.5px solid #e5e7eb;border-radius:8px;background:#f9fafb;color:#111;font-size:13px;font-family:inherit;transition:border-color .2s}
+.inp:focus{outline:none;border-color:#0f1535;background:#fff}
+select.inp{cursor:pointer}
+textarea.inp{resize:none;line-height:1.5}
+/* BADGES */
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600}
+.b-pending{background:#fefce8;color:#854d0e;border:1px solid #fde68a}
+.b-ongoing{background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe}
+.b-completed{background:#f0fdf4;color:#166534;border:1px solid #bbf7d0}
+.b-internal{background:#f5f3ff;color:#5b21b6;border:1px solid #ddd6fe}
+.b-external{background:#fdf4ff;color:#7e22ce;border:1px solid #e9d5ff}
+.b-emp{background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;font-size:10px;padding:1px 7px}
+.b-ov{background:#fef2f2;color:#991b1b;border:1px solid #fca5a5;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700}
+.b-mine{background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700}
+/* STATS */
+.stats-row{display:grid;gap:12px;margin-bottom:20px}
+.stats-4{grid-template-columns:repeat(4,1fr)}
+.stat-box{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.stat-num{font-size:26px;font-weight:700;color:#0f1535;letter-spacing:-.5px}
+.stat-text{font-size:12px;color:#888;margin-top:3px}
+/* HOME */
+.home-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;max-width:600px}
+.home-card{background:#fff;border:2px solid #e5e7eb;border-radius:14px;padding:20px;cursor:pointer;transition:all .2s}
+.home-card:hover{border-color:#e8600a;transform:translateY(-2px);box-shadow:0 8px 24px rgba(232,96,10,.1)}
+/* TEAMS */
+.teams-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+.team-card{background:#fff;border:2px solid #e5e7eb;border-radius:12px;padding:16px;cursor:pointer;transition:all .15s;position:relative}
+.team-card:hover{border-color:#e8600a}
+.team-card-actions{position:absolute;top:8px;right:8px;display:none;gap:4px}
+.team-card:hover .team-card-actions{display:flex}
+/* MEETING LIST */
+.mtg-list-item{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px 18px;cursor:pointer;display:flex;align-items:center;gap:14px;transition:all .15s;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.mtg-list-item:hover{border-color:#e8600a;box-shadow:0 4px 12px rgba(232,96,10,.1)}
+.mtg-icon{width:44px;height:44px;border-radius:11px;background:linear-gradient(135deg,#e8600a,#f09040);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+/* ATTENDEES */
+.pills-wrap{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;min-height:30px}
+.pill{display:inline-flex;align-items:center;gap:5px;padding:5px 11px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:20px;font-size:12px;font-weight:500}
+.pill-x{cursor:pointer;color:#9ca3af;font-weight:700;font-size:13px;line-height:1;margin-left:2px}
+.pill-x:hover{color:#dc2626}
+/* MINUTES */
+.min-item{background:#fff;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:10px;overflow:hidden}
+.min-header{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;cursor:pointer}
+.min-num{font-size:11px;font-weight:700;color:#e8600a;min-width:20px;flex-shrink:0;margin-top:1px}
+.min-text{flex:1;font-size:13px;line-height:1.5;color:#111;font-weight:500}
+.min-type-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;flex-shrink:0}
+.min-note{background:#f1f5f9;color:#475569}
+.min-task{background:#fff7ed;color:#c2410c}
+.min-body{padding:0 14px 12px;border-top:1px solid #f3f4f6;margin-top:0}
+.min-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.attachment-link{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;font-size:11px;color:#1e40af;text-decoration:none;font-weight:600}
+.attachment-link:hover{background:#dbeafe}
+/* TASKS */
+.task-box{background:#fff;border:1px solid #e5e7eb;border-left:4px solid #cbd5e1;border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.task-box.mine{border-left-color:#16a34a;background:#f9fffe}
+.task-box.overdue{border-left-color:#dc2626;background:#fff9f9}
+.task-tags{display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.task-desc{font-size:13px;color:#374151;line-height:1.5;margin-bottom:13px;padding:10px 13px;background:#f8fafc;border-radius:8px;border-left:3px solid #e8600a;font-weight:500}
+.task-fields{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px}
+.field-label{font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}
+.task-actions{display:flex;gap:8px;flex-wrap:wrap;padding-top:12px;border-top:1px solid #f3f4f6;align-items:center}
+.task-note{font-size:11px;color:#555;padding:7px 11px;background:#f8fafc;border-radius:7px;margin-top:6px;border-left:2px solid #e8600a;line-height:1.4}
+/* CLIENTS */
+.client-row{background:#fff;border:2px solid #e5e7eb;border-radius:12px;padding:16px 18px;cursor:pointer;display:flex;align-items:center;gap:14px;transition:all .15s;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.client-row:hover{border-color:#e8600a}
+.client-av{width:42px;height:42px;border-radius:11px;background:linear-gradient(135deg,#e8600a,#f09040);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;flex-shrink:0}
+/* MY TASKS */
+.task-filter-tabs{display:flex;gap:8px;margin-bottom:18px}
+.tftab{padding:8px 20px;border:2px solid #e5e7eb;border-radius:20px;background:#fff;cursor:pointer;font-size:13px;font-weight:600;color:#555;font-family:inherit;transition:all .15s}
+.tftab.on{background:#0f1535;color:#fff;border-color:#0f1535}
+.tftab.or.on{background:#e8600a;border-color:#e8600a}
+.tftab.gr.on{background:#16a34a;border-color:#16a34a}
+.section-heading{font-size:12px;font-weight:700;color:#0f1535;text-transform:uppercase;letter-spacing:.5px;margin:16px 0 10px;padding-bottom:7px;border-bottom:2px solid #e5e7eb}
+/* DASHBOARD */
+.filter-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center}
+.filter-chip{padding:6px 16px;border:2px solid #e5e7eb;border-radius:20px;background:#fff;cursor:pointer;font-size:12px;font-weight:600;color:#555;font-family:inherit;transition:all .15s}
+.filter-chip.active{background:#0f1535;color:#fff;border-color:#0f1535}
+.table-card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+table{width:100%;border-collapse:collapse}
+th{padding:11px 13px;font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;background:#f9fafb;border-bottom:1px solid #f3f4f6;text-align:left;letter-spacing:.5px}
+td{padding:11px 13px;border-bottom:1px solid #f9fafb;font-size:12px;color:#111;vertical-align:middle}
+tr:last-child td{border:none}
+tr:hover td{background:#fafafa}
+/* MODAL */
+.modal-bg{position:fixed;inset:0;background:rgba(10,14,40,.65);display:flex;align-items:center;justify-content:center;z-index:9999}
+.modal-card{background:#fff;border-radius:16px;padding:24px;width:100%;max-width:440px;box-shadow:0 24px 64px rgba(0,0,0,.3);max-height:90vh;overflow-y:auto}
+.modal-title{font-size:17px;font-weight:700;color:#0f1535;margin-bottom:16px}
+.modal-field{margin-bottom:13px}
+.modal-field label{display:block;font-size:11px;font-weight:700;color:#374151;margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px}
+.modal-actions{display:flex;gap:9px;margin-top:18px;justify-content:flex-end}
+/* TOAST */
+.toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:11px;font-size:13px;font-weight:600;z-index:99999;animation:toastIn .2s ease;color:#fff;box-shadow:0 6px 20px rgba(0,0,0,.2);display:flex;align-items:center;gap:8px}
+.toast-ok{background:#166534}.toast-err{background:#991b1b}.toast-inf{background:#1e40af}
+@keyframes toastIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.loading-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;background:#0f1535}
+.loader{width:40px;height:40px;border:4px solid rgba(232,96,10,.2);border-top-color:#e8600a;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* UPLOAD */
+.file-upload-area{border:2px dashed #e5e7eb;border-radius:8px;padding:12px 16px;text-align:center;cursor:pointer;transition:all .15s;background:#f9fafb}
+.file-upload-area:hover{border-color:#e8600a;background:#fff7ed}
+.file-upload-area input{display:none}
+/* VIEW ONLY */
+.view-only-banner{background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:8px 14px;font-size:12px;color:#854d0e;margin-bottom:12px;font-weight:600;display:flex;align-items:center;gap:6px}
+@media print{.sidebar,.btn,.back-link,.task-actions,.team-card-actions,.filter-bar,.page-head .btn,.min-actions{display:none!important}.main-content{margin-left:0!important}}
+</style>
+</head>
+<body>
+<div id="root">
+  <div class="loading-screen">
+    <div class="loader"></div>
+    <div style="color:rgba(255,255,255,.5);font-size:14px">Loading NTF MeetTrack...</div>
+  </div>
+</div>
+<script>
+// ── FIREBASE CONFIG ─────────────────────────────
+var firebaseConfig = {
+  apiKey: "AIzaSyAlr2Rn4cGBKfMM9mcgKJ3H9rj9tPW5kD0",
+  authDomain: "meettrack-1bd7e.firebaseapp.com",
+  projectId: "meettrack-1bd7e",
+  storageBucket: "meettrack-1bd7e.firebasestorage.app",
+  messagingSenderId: "199366587854",
+  appId: "1:199366587854:web:3a94a783f60a6e28fbe79f"
+};
+firebase.initializeApp(firebaseConfig);
+var auth    = firebase.auth();
+var db      = firebase.firestore();
+var storage = firebase.storage();
+
+// ── STATE ───────────────────────────────────────
+var ST = {
+  page:'loading', subPage:'teams', user:null, profile:null,
+  aMode:'login', aRole:'employee', aErr:'',
+  allUsers:[], teams:[], clients:[], meetings:[],
+  cur:null, curTeamId:null, curClientId:null,
+  dFil:'all', dPer:'monthly', myTaskFilter:'all'
+};
+
+// ── HELPERS ─────────────────────────────────────
+function ini(n){ return (n||'?').split(' ').map(function(w){return w[0];}).join('').toUpperCase().slice(0,2); }
+function today(){ return new Date().toISOString().split('T')[0]; }
+function fmtD(d){ if(!d) return 'Not set'; try{ return new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}); }catch(e){ return d; } }
+function isOv(d,s){ return d && s!=='completed' && new Date(d) < new Date(); }
+function canM(){ return ST.profile && (ST.profile.role==='director'||ST.profile.role==='boss'); }
+function canEditMeeting(m){ return m && (m.createdByUid===ST.user.uid || canM()); }
+function getMgrEmails(){ return ST.allUsers.filter(function(u){return u.role==='boss'||u.role==='director';}).map(function(u){return u.email;}).filter(Boolean); }
+function getAttendeeOptions(m){
+  var atts = m && m.attendees ? m.attendees : [];
+  return atts.map(function(a){
+    return '<option value="'+a.email+'">'+a.name+'</option>';
+  }).join('');
+}
+
+function toast(msg, type){
+  type = type||'inf';
+  document.querySelectorAll('.toast').forEach(function(t){ t.remove(); });
+  var el = document.createElement('div');
+  el.className = 'toast toast-'+type;
+  el.innerHTML = (type==='ok'?'✓':type==='err'?'✕':'ℹ')+' '+msg;
+  document.body.appendChild(el);
+  setTimeout(function(){ el.remove(); }, 3000);
+}
+function openGmail(to, subject, body){
+  window.open('https://mail.google.com/mail/?view=cm&to='+encodeURIComponent(to)+'&su='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body),'_blank');
+}
+
+// ── FIREBASE ────────────────────────────────────
+function loadAll(){ return Promise.all([loadUsers(),loadTeams(),loadClients(),loadMeetings()]); }
+
+function loadUsers(){
+  return db.collection('users').get().then(function(snap){
+    ST.allUsers = snap.docs.map(function(d){ return Object.assign({id:d.id},d.data()); });
+  });
+}
+function loadTeams(){
+  return db.collection('teams').get().then(function(snap){
+    ST.teams = snap.docs.map(function(d){ return Object.assign({id:d.id},d.data()); });
+    if(!ST.teams.length) return seedTeams();
+  });
+}
+function seedTeams(){
+  var defs=[{name:'HR',icon:'👥'},{name:'Tech',icon:'💻'},{name:'Operations',icon:'⚙️'},{name:'Marketing',icon:'📣'},{name:'Finance',icon:'💰'},{name:'Legal',icon:'⚖️'}];
+  return Promise.all(defs.map(function(t){
+    return db.collection('teams').add(t).then(function(r){ ST.teams.push(Object.assign({id:r.id},t)); });
+  }));
+}
+function loadClients(){
+  return db.collection('clients').get().then(function(snap){
+    ST.clients = snap.docs.map(function(d){ return Object.assign({id:d.id},d.data()); });
+  });
+}
+function loadMeetings(){
+  return db.collection('meetings').orderBy('createdAt','desc').get().then(function(snap){
+    ST.meetings = snap.docs.map(function(d){ return Object.assign({id:d.id},d.data()); });
+  }).catch(function(){
+    return db.collection('meetings').get().then(function(snap){
+      ST.meetings = snap.docs.map(function(d){ return Object.assign({id:d.id},d.data()); });
+    });
+  });
+}
+function saveMeeting(m){
+  var data = JSON.parse(JSON.stringify(m));
+  var id = data.id; delete data.id;
+  if(id){
+    return db.collection('meetings').doc(id).update(data).then(function(){
+      m.id=id;
+      var idx=ST.meetings.findIndex(function(x){return x.id===id;});
+      if(idx!==-1) ST.meetings[idx]=JSON.parse(JSON.stringify(m));
+    }).catch(function(){
+      return db.collection('meetings').doc(id).set(data).then(function(){ m.id=id; });
+    });
+  } else {
+    data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+    return db.collection('meetings').add(data).then(function(r){
+      m.id=r.id;
+      ST.meetings.unshift(JSON.parse(JSON.stringify(m)));
+    });
+  }
+}
+function uploadFile(file, path){
+  var ref = storage.ref(path);
+  return ref.put(file).then(function(){ return ref.getDownloadURL(); });
+}
+
+// ── AUTH ────────────────────────────────────────
+var authTimeout = setTimeout(function(){
+  if(ST.page==='loading'){ ST.page='auth'; render(); }
+},6000);
+
+auth.onAuthStateChanged(function(user){
+  clearTimeout(authTimeout);
+  if(user){
+    ST.user=user;
+    db.collection('users').doc(user.uid).get().then(function(snap){
+      if(!snap.exists){ auth.signOut(); ST.page='auth'; render(); return; }
+      ST.profile=Object.assign({id:snap.id},snap.data());
+      return loadAll();
+    }).then(function(){ ST.page='home'; render(); })
+    .catch(function(e){ ST.page='auth'; ST.aErr='Connection error: '+e.message; render(); });
+  } else {
+    ST.user=null; ST.profile=null; ST.page='auth'; render();
+  }
+});
+
+// ── RENDER ──────────────────────────────────────
+function render(){
+  var root=document.getElementById('root');
+  if(ST.page==='auth'){ root.innerHTML=authHTML(); return; }
+  root.innerHTML='<div class="app-layout">'+sidebarHTML()+'<div class="main-content" id="main"></div></div>';
+  document.getElementById('main').innerHTML=pageHTML();
+}
+
+// ── AUTH HTML ────────────────────────────────────
+function authHTML(){
+  var isL=ST.aMode==='login';
+  return '<div class="auth-page"><div class="auth-box">'+
+  '<div class="auth-brand"><div class="auth-ntf">NTF India</div><div class="auth-logo">Meet<span>Track</span></div><div class="auth-sub">'+(isL?'Sign in to your workspace':'Create your employee account')+'</div></div>'+
+  (isL?'<div class="role-tabs">'+['employee','director','boss'].map(function(r){
+    return '<div class="role-tab'+(ST.aRole===r?' active':'')+'" onclick="setRole(\''+r+'\')">'+r[0].toUpperCase()+r.slice(1)+'</div>';
+  }).join('')+'</div>':'')+
+  '<div class="hint">💡 Boss: boss@company.com &nbsp;·&nbsp; Director: director@company.com<br>Employees can register below</div>'+
+  (ST.aErr?'<div class="auth-err">⚠ '+ST.aErr+'</div>':'')+
+  '<div class="auth-field"><label>Email Address</label><input id="a-email" type="email" placeholder="you@ntfindia.com"></div>'+
+  '<div class="auth-field"><label>Password</label><input id="a-pass" type="password" placeholder="Minimum 6 characters"></div>'+
+  (!isL?'<div class="auth-field"><label>Full Name</label><input id="a-name" type="text" placeholder="Your full name"></div>':'')+
+  '<button class="btn btn-or btn-full" onclick="doAuth()">'+(isL?'Sign In →':'Create Account →')+'</button>'+
+  '<div class="auth-link">'+(isL?'No account? <span onclick="switchAuth()">Create employee account</span>':'Have account? <span onclick="switchAuth()">Sign in</span>')+'</div>'+
+  '</div></div>';
+}
+window.setRole=function(r){ST.aRole=r;ST.aErr='';render();};
+window.switchAuth=function(){ST.aMode=ST.aMode==='login'?'register':'login';ST.aErr='';render();};
+window.doAuth=function(){
+  var email=(document.getElementById('a-email')||{}).value||'';
+  var pass=(document.getElementById('a-pass')||{}).value||'';
+  email=email.trim();
+  var btn=document.querySelector('.btn-full');
+  if(btn){btn.disabled=true;btn.textContent='Please wait...';}
+  if(ST.aMode==='login'){
+    auth.signInWithEmailAndPassword(email,pass).then(function(cred){
+      return db.collection('users').doc(cred.user.uid).get().then(function(snap){
+        if(!snap.exists||snap.data().role!==ST.aRole){
+          return auth.signOut().then(function(){ST.aErr='No '+ST.aRole+' account found. Check role or credentials.';render();});
+        }
+      });
+    }).catch(function(e){
+      ST.aErr=e.code==='auth/user-not-found'?'Account not found':e.code==='auth/wrong-password'?'Incorrect password':e.code==='auth/invalid-credential'?'Invalid email or password':e.code==='auth/too-many-requests'?'Too many attempts. Try later.':e.message;
+      render();
+    });
+  } else {
+    var nameEl=document.getElementById('a-name');
+    var name=nameEl?nameEl.value.trim():'';
+    if(!name){ST.aErr='Enter your full name';render();return;}
+    auth.createUserWithEmailAndPassword(email,pass).then(function(cred){
+      return db.collection('users').doc(cred.user.uid).set({name:name,email:email,role:'employee',createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+    }).catch(function(e){
+      ST.aErr=e.code==='auth/email-already-in-use'?'Email already registered':e.code==='auth/weak-password'?'Password must be 6+ chars':e.message;
+      render();
+    });
+  }
+};
+
+// ── SIDEBAR ──────────────────────────────────────
+function sidebarHTML(){
+  var p=ST.page,u=ST.profile;
+  return '<div class="sidebar">'+
+  '<div class="sb-brand"><div class="sb-ntf">NTF India</div><div class="sb-name">Meet<span>Track</span></div><div class="sb-sub">Meeting Management System</div></div>'+
+  '<div class="sb-section">Meetings</div>'+
+  '<div class="nav-item'+(p==='home'?' active':'')+'" onclick="goPage(\'home\')">🏠 Home</div>'+
+  '<div class="nav-item'+(p==='internal'||p==='meetlist-int'||p==='meeting'&&ST.cur&&ST.cur.type==='internal'?' active':'')+'" onclick="goPage(\'internal\')">👥 Internal</div>'+
+  '<div class="nav-item'+(p==='external'||p==='meetlist-ext'||p==='meeting'&&ST.cur&&ST.cur.type==='external'?' active':'')+'" onclick="goPage(\'external\')">🌐 External</div>'+
+  '<div class="nav-item'+(p==='mytasks'?' active':'')+'" onclick="goPage(\'mytasks\')">✅ My Tasks</div>'+
+  '<div class="sb-section">Reports</div>'+
+  '<div class="nav-item'+(p==='dashboard'?' active':'')+'" onclick="goPage(\'dashboard\')">📊 Dashboard</div>'+
+  '<div class="sb-user">'+
+    '<div class="sb-av">'+(u?ini(u.name):'?')+'</div>'+
+    '<div style="flex:1;min-width:0"><div class="sb-uname">'+(u?u.name:'')+'</div><div class="sb-urole">'+(u?u.role:'')+'</div></div>'+
+    '<button class="sb-logout" onclick="auth.signOut()" title="Sign out">⏻</button>'+
+  '</div></div>';
+}
+window.goPage=function(pg){
+  ST.page=pg; ST.cur=null; ST.curTeamId=null; ST.curClientId=null;
+  var p=Promise.resolve();
+  if(pg==='internal') p=loadTeams();
+  else if(pg==='external') p=loadClients();
+  else if(pg==='dashboard'||pg==='mytasks') p=loadMeetings();
+  p.then(function(){render();});
+};
+
+// ── PAGES ────────────────────────────────────────
+function pageHTML(){
+  if(ST.page==='home') return homePage();
+  if(ST.page==='internal') return internalPage();
+  if(ST.page==='external') return externalPage();
+  if(ST.page==='meetlist-int') return meetListPage('internal');
+  if(ST.page==='meetlist-ext') return meetListPage('external');
+  if(ST.page==='meeting') return meetingPage();
+  if(ST.page==='mytasks') return myTasksPage();
+  if(ST.page==='dashboard') return dashPage();
+  return homePage();
+}
+
+function homePage(){
+  var u=ST.profile;
+  var tt=ST.meetings.reduce(function(a,m){return a+(m.tasks||[]).length;},0);
+  var ct=ST.meetings.reduce(function(a,m){return a+(m.tasks||[]).filter(function(t){return t.status==='completed';}).length;},0);
+  var ov=ST.meetings.reduce(function(a,m){return a+(m.tasks||[]).filter(function(t){return isOv(t.deadline,t.status);}).length;},0);
+  var mt=ST.meetings.reduce(function(a,m){return a+(m.tasks||[]).filter(function(t){return t.assigneeEmail===(u&&u.email);}).length;},0);
+  return '<div class="page-head"><div><div class="page-title">Good day, '+(u&&u.name?u.name.split(' ')[0]:'')+'! 👋</div>'+
+  '<div class="page-sub">NTF India · '+new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'})+'</div></div></div>'+
+  '<div class="home-grid">'+
+  '<div class="home-card" onclick="goPage(\'internal\')"><div style="font-size:32px;margin-bottom:10px">👥</div><div style="font-size:16px;font-weight:700;color:#0f1535;margin-bottom:4px">Internal Meeting</div><div style="font-size:13px;color:#888">Team collaboration, minutes & tasks</div></div>'+
+  '<div class="home-card" onclick="goPage(\'external\')"><div style="font-size:32px;margin-bottom:10px">🌐</div><div style="font-size:16px;font-weight:700;color:#0f1535;margin-bottom:4px">External Meeting</div><div style="font-size:13px;color:#888">Client meetings & follow-ups</div></div>'+
+  '</div>'+
+  '<div class="stats-row stats-4" style="max-width:720px">'+
+  '<div class="stat-box"><div class="stat-num">'+ST.meetings.length+'</div><div class="stat-text">Total Meetings</div></div>'+
+  '<div class="stat-box"><div class="stat-num">'+ct+'/'+tt+'</div><div class="stat-text">Tasks Done</div></div>'+
+  '<div class="stat-box" style="'+(ov?'border-color:#fca5a5':'')+'"><div class="stat-num" style="'+(ov?'color:#dc2626':'')+'">'+ov+'</div><div class="stat-text">Overdue Tasks</div></div>'+
+  '<div class="stat-box" style="border-color:#fed7aa"><div class="stat-num" style="color:#e8600a">'+mt+'</div><div class="stat-text">My Tasks</div></div>'+
+  '</div>';
+}
+
+// ── INTERNAL PAGE (Teams) ────────────────────────
+function internalPage(){
+  var mg=canM();
+  return '<div class="page-head"><div><div class="page-title">Internal Meetings</div><div class="page-sub">Click a team to view its meetings</div></div>'+
+  '<button class="btn btn-or" onclick="addTeam()">+ Add Team</button></div>'+
+  '<div class="teams-grid">'+
+  ST.teams.map(function(t){
+    var cnt=ST.meetings.filter(function(m){return m.teamId===t.id;}).length;
+    return '<div class="team-card" onclick="openTeamMeetings(\''+t.id+'\')">'+
+    (mg?'<div class="team-card-actions"><button class="btn btn-or btn-xs" onclick="event.stopPropagation();editTeam(\''+t.id+'\')">✏ Edit</button><button class="btn btn-rd btn-xs" onclick="event.stopPropagation();delTeam(\''+t.id+'\')">🗑</button></div>':'')+
+    '<div style="font-size:26px;margin-bottom:8px">'+(t.icon||'👥')+'</div>'+
+    '<div style="font-size:13px;font-weight:700;color:#0f1535">'+t.name+'</div>'+
+    '<div style="font-size:11px;color:#888;margin-top:3px">'+cnt+' meeting(s)</div>'+
+    '</div>';
+  }).join('')+'</div>';
+}
+
+// ── EXTERNAL PAGE (Clients) ──────────────────────
+function externalPage(){
+  return '<div class="page-head"><div><div class="page-title">External Meetings</div><div class="page-sub">Click a client to view meetings</div></div>'+
+  '<button class="btn btn-or" onclick="addClient()">+ Add Client</button></div>'+
+  (ST.clients.length===0?'<div style="text-align:center;padding:4rem;color:#aaa;background:#fff;border-radius:14px;border:1px solid #e5e7eb"><div style="font-size:48px;margin-bottom:14px">🌐</div><div style="font-size:16px;font-weight:600;color:#374151;margin-bottom:6px">No clients yet</div><button class="btn btn-or" onclick="addClient()" style="margin-top:10px">+ Add First Client</button></div>':'')+
+  ST.clients.map(function(c){
+    var cnt=ST.meetings.filter(function(m){return m.clientId===c.id;}).length;
+    return '<div class="client-row" onclick="openClientMeetings(\''+c.id+'\')">'+
+    '<div class="client-av">'+ini(c.name)+'</div>'+
+    '<div style="flex:1"><div style="font-size:14px;font-weight:700;color:#0f1535">'+c.name+'</div><div style="font-size:12px;color:#888;margin-top:2px">'+c.contact+'</div></div>'+
+    '<div style="font-size:12px;color:#aaa;margin-right:14px">'+cnt+' meeting(s)</div>'+
+    '<button class="btn btn-rd btn-sm" onclick="event.stopPropagation();delClient(\''+c.id+'\')">🗑 Delete</button>'+
+    '</div>';
+  }).join('');
+}
+
+// ── MEETING LIST PAGE ────────────────────────────
+function meetListPage(type){
+  var isI=type==='internal';
+  var parentId=isI?ST.curTeamId:ST.curClientId;
+  var parent=isI?ST.teams.find(function(t){return t.id===parentId;}):ST.clients.find(function(c){return c.id===parentId;});
+  var parentName=parent?(isI?parent.name:parent.name):'Unknown';
+  var meetings=ST.meetings.filter(function(m){return isI?(m.teamId===parentId):(m.clientId===parentId);});
+
+  return '<div class="back-link" onclick="goPage(\''+(isI?'internal':'external')+'\')">← Back to '+(isI?'Teams':'Clients')+'</div>'+
+  '<div class="page-head">'+
+  '<div><div class="page-title">'+(isI?'👥':'🌐')+' '+parentName+'</div><div class="page-sub">All meetings — newest first</div></div>'+
+  '<button class="btn btn-or" onclick="newMeeting()">+ New Meeting</button>'+
+  '</div>'+
+  (meetings.length===0?
+  '<div style="text-align:center;padding:4rem;color:#aaa;background:#fff;border-radius:14px;border:1px solid #e5e7eb"><div style="font-size:48px;margin-bottom:14px">📋</div><div style="font-size:16px;font-weight:600;color:#374151;margin-bottom:6px">No meetings yet</div><div style="font-size:13px;margin-bottom:16px">Click "+ New Meeting" to start the first one</div><button class="btn btn-or" onclick="newMeeting()">+ New Meeting</button></div>':
+  meetings.map(function(m){
+    var minCnt=(m.minutes||[]).length;
+    var taskCnt=(m.tasks||[]).length;
+    var pendCnt=(m.tasks||[]).filter(function(t){return t.status==='pending';}).length;
+    return '<div class="mtg-list-item" onclick="openMeeting(\''+m.id+'\')">'+
+    '<div class="mtg-icon">📋</div>'+
+    '<div style="flex:1">'+
+    '<div style="font-size:15px;font-weight:700;color:#0f1535">'+(m.meetingName||'Untitled Meeting')+'</div>'+
+    '<div style="font-size:12px;color:#888;margin-top:3px">'+m.date+' &nbsp;·&nbsp; '+(m.attendees||[]).length+' attendees &nbsp;·&nbsp; '+minCnt+' minutes &nbsp;·&nbsp; '+taskCnt+' tasks</div>'+
+    '</div>'+
+    '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px">'+
+    (pendCnt>0?'<span class="badge b-pending">'+pendCnt+' pending</span>':'<span class="badge b-completed">All done</span>')+
+    '<div style="font-size:11px;color:#aaa">By '+m.createdBy+'</div>'+
+    '</div>'+
+    '</div>';
+  }).join(''));
+}
+
+// ── MEETING ROOM ─────────────────────────────────
+function meetingPage(){
+  var m=ST.cur;
+  if(!m) return '<div style="padding:2rem;color:#888">No meeting selected</div>';
+  var isI=m.type==='internal';
+  var canEdit=canEditMeeting(m);
+  var atts=m.attendees||[];
+  var mins=m.minutes||[];
+  var tasks=m.tasks||[];
+
+  // attendees for task assignment (only meeting attendees)
+  var attOpts=atts.map(function(a){return '<option value="'+a.email+'">'+a.name+'</option>';}).join('');
+
+  var attHTML=atts.map(function(a,i){
+    return '<div class="pill">'+a.name+'<span style="color:#9ca3af;font-size:11px;margin-left:3px">('+a.email+')</span>'+
+    (canEdit?'<span class="pill-x" onclick="removeAtt('+i+')">×</span>':'')+
+    '</div>';
+  }).join('');
+
+  var quickHTML='';
+  if(canEdit){
+    quickHTML=ST.allUsers.filter(function(u){return !atts.find(function(a){return a.email===u.email;});}).map(function(u){
+      return '<button class="btn btn-gy btn-sm" style="margin:2px" onclick="quickAddAtt(\''+u.email+'\',\''+u.name+'\')">+ '+u.name+' <span class="b-emp">'+u.role+'</span></button>';
+    }).join('');
+  }
+
+  // Build minutes HTML
+  var minsHTML='';
+  if(mins.length===0){
+    minsHTML='<div style="text-align:center;padding:18px;color:#9ca3af;background:#f9fafb;border-radius:9px;margin-bottom:10px">'+
+    (canEdit?'📝 No minutes yet — add one below':'📝 No minutes recorded yet')+'</div>';
+  } else {
+    minsHTML=mins.map(function(mn,i){
+      var isAssign=mn.type==='assign';
+      var t=mn.task||null;
+      var ov=t&&isOv(t.deadline,t.status);
+      var attachHTML='';
+      if(mn.attachmentUrl){
+        attachHTML='<a href="'+mn.attachmentUrl+'" target="_blank" class="attachment-link">📎 '+( mn.attachmentName||'View Attachment')+'</a>';
+      }
+      return '<div class="min-item">'+
+      '<div class="min-header">'+
+      '<span class="min-num">'+(i+1)+'</span>'+
+      '<span class="min-text">'+mn.text+'</span>'+
+      '<span class="min-type-badge '+(isAssign?'min-task':'min-note')+'">'+(isAssign?'📌 Task':'📝 Note')+'</span>'+
+      '</div>'+
+      (isAssign&&t?
+      '<div class="min-body">'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">'+
+      '<div><div class="field-label">Assigned To</div><div style="font-size:12px;font-weight:600">'+(t.assignee||'Not assigned')+'</div></div>'+
+      '<div><div class="field-label">Deadline</div><div style="font-size:12px;color:'+(ov?'#dc2626':'#111')+';font-weight:'+(ov?700:400)+'">'+fmtD(t.deadline)+(ov?' ⚠':'')+'</div></div>'+
+      '<div><div class="field-label">Status</div><span class="badge '+(t.status==='pending'?'b-pending':t.status==='ongoing'?'b-ongoing':'b-completed')+'">'+t.status.toUpperCase()+'</span></div>'+
+      '</div>'+
+      (t.lastComment?'<div class="task-note">💬 "'+t.lastComment+'" — <em>'+(t.lastUpdatedBy||'?')+'</em></div>':'')+
+      attachHTML+
+      '<div class="min-actions">'+
+      (canEdit?'<button class="btn btn-or btn-sm" onclick="editMinute('+i+')">✏ Edit</button>':'')+
+      (canEdit?'<button class="btn btn-rd btn-sm" onclick="delMinute('+i+')">🗑 Delete</button>':'')+
+      '</div></div>':
+      '<div class="min-body">'+
+      attachHTML+
+      '<div class="min-actions">'+
+      (canEdit?'<button class="btn btn-or btn-sm" onclick="editMinute('+i+')">✏ Edit</button>':'')+
+      (canEdit?'<button class="btn btn-rd btn-sm" onclick="delMinute('+i+')">🗑 Delete</button>':'')+
+      '</div></div>')+
+      '</div>';
+    }).join('');
+  }
+
+  return '<div class="back-link" onclick="goBackToList()">← Back to Meetings</div>'+
+  '<div class="page-head">'+
+  '<div>'+
+  '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'+
+  '<div class="page-title">'+(m.meetingName||'Untitled Meeting')+'</div>'+
+  '<span class="badge '+(isI?'b-internal':'b-external')+'">'+(isI?'internal':'external')+'</span>'+
+  '<span style="font-size:12px;color:#888;background:#f3f4f6;padding:3px 11px;border-radius:20px;font-weight:500">'+m.date+'</span>'+
+  '</div>'+
+  '<div class="page-sub" style="margin-top:5px">Created by '+m.createdBy+'</div>'+
+  '</div>'+
+  '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
+  '<button class="btn btn-pu btn-sm" onclick="exportPDF()">📄 Export PDF</button>'+
+  '<button class="btn btn-gr btn-sm" onclick="exportExcel()">📊 Export Excel</button>'+
+  '<button class="btn btn-gy btn-sm" onclick="window.print()">🖨 Print</button>'+
+  '</div>'+
+  '</div>'+
+
+  // ATTENDEES
+  '<div class="card">'+
+  '<div class="card-head"><div class="card-label">Attendees <span style="color:#9ca3af;font-weight:400;font-size:10px;margin-left:5px">'+atts.length+' people</span></div></div>'+
+  '<div class="pills-wrap">'+attHTML+'</div>'+
+  (canEdit?
+  '<div style="margin-bottom:14px">'+
+  '<div style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;padding:4px 11px;background:#f3f4f6;border-radius:6px;display:inline-block">⚡ Quick Add Registered Users</div>'+
+  '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">'+quickHTML+'</div>'+
+  '</div>'+
+  '<div style="display:grid;grid-template-columns:1fr 1fr auto;gap:9px;align-items:end">'+
+  '<div><div class="field-label" style="margin-bottom:5px">Name</div><input class="inp" id="att-name" placeholder="Full name"></div>'+
+  '<div><div class="field-label" style="margin-bottom:5px">Email</div><input class="inp" id="att-email" type="email" placeholder="email@ntfindia.com"></div>'+
+  '<button class="btn btn-or" onclick="addAtt()" style="height:38px">+ Add</button>'+
+  '</div>':
+  (!canEdit&&atts.length===0?'<div style="color:#aaa;font-size:13px">No attendees recorded</div>':''))+
+  '</div>'+
+
+  // MINUTES
+  '<div class="card">'+
+  '<div class="card-head"><div class="card-label">Minutes of Meeting <span style="color:#9ca3af;font-weight:400;font-size:10px;margin-left:5px">'+mins.length+' recorded</span></div></div>'+
+  (!canEdit&&mins.length>0?'<div class="view-only-banner">👁 View only — only the meeting creator or Directors can edit</div>':'')+
+  '<div id="min-list">'+minsHTML+'</div>'+
+  (canEdit?
+  '<div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-top:12px">'+
+  '<div style="font-size:12px;font-weight:700;color:#0f1535;margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px">➕ Add New Minute</div>'+
+  '<div style="margin-bottom:10px">'+
+  '<div class="field-label" style="margin-bottom:5px">Minute Text</div>'+
+  '<textarea class="inp" id="min-input" placeholder="Type the minute here..." style="height:64px"></textarea>'+
+  '</div>'+
+  '<div style="margin-bottom:10px">'+
+  '<div class="field-label" style="margin-bottom:8px">Type</div>'+
+  '<div style="display:flex;gap:10px">'+
+  '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:500"><input type="radio" name="mintype" value="note" checked> 📝 Just a Note</label>'+
+  '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:500"><input type="radio" name="mintype" value="assign"> 📌 Assign Task to Someone</label>'+
+  '</div>'+
+  '</div>'+
+  '<div id="assign-fields" style="display:none;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:12px;margin-bottom:10px">'+
+  '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">'+
+  '<div><div class="field-label" style="margin-bottom:5px">👤 Assign To (Attendees Only)</div>'+
+  '<select class="inp" id="min-assignee"><option value="">— Select attendee —</option>'+attOpts+'</select></div>'+
+  '<div><div class="field-label" style="margin-bottom:5px">📅 Deadline</div><input type="date" class="inp" id="min-deadline"></div>'+
+  '<div><div class="field-label" style="margin-bottom:5px">🔄 Status</div>'+
+  '<select class="inp" id="min-status"><option value="pending">Pending</option><option value="ongoing">Ongoing</option><option value="completed">Completed</option></select></div>'+
+  '</div>'+
+  '</div>'+
+  '<div style="margin-bottom:12px">'+
+  '<div class="field-label" style="margin-bottom:5px">📎 Attach File (optional)</div>'+
+  '<div class="file-upload-area" onclick="document.getElementById(\'min-file\').click()">'+
+  '<input type="file" id="min-file" accept="*/*">'+
+  '<div id="min-file-label" style="font-size:12px;color:#6b7280">Click to attach a file</div>'+
+  '</div>'+
+  '</div>'+
+  '<button class="btn btn-or" onclick="addMinute()" style="width:100%;justify-content:center">➕ Add Minute</button>'+
+  '</div>':'')+ // end canEdit
+  '</div>';
+}
+
+// ── MY TASKS PAGE ─────────────────────────────────
+function myTasksPage(){
+  var me=ST.profile&&ST.profile.email;
+  var all=[];
+  ST.meetings.forEach(function(m){
+    (m.minutes||[]).forEach(function(mn,i){
+      if(mn.type==='assign'&&mn.task&&mn.task.assigneeEmail===me){
+        all.push(Object.assign({},mn.task,{
+          mi:i, mid:m.id,
+          minuteText:mn.text,
+          ref:m.type==='internal'?m.teamName:m.clientName,
+          meetingName:m.meetingName||'Untitled',
+          mtype:m.type, date:m.date,
+          attachmentUrl:mn.attachmentUrl||null,
+          attachmentName:mn.attachmentName||null
+        }));
+      }
+    });
+  });
+
+  // Filter
+  var filt=ST.myTaskFilter;
+  var filtered=filt==='all'?all:all.filter(function(t){return t.status===filt;});
+
+  function tCard(t){
+    var ov=isOv(t.deadline,t.status);
+    return '<div class="task-box mine'+(ov?' overdue':'')+'" style="margin-bottom:14px">'+
+    '<div class="task-tags">'+
+    '<span class="badge '+(t.mtype==='internal'?'b-internal':'b-external')+'">'+t.ref+'</span>'+
+    '<span style="font-size:11px;color:#888;background:#f3f4f6;padding:2px 9px;border-radius:20px">'+t.meetingName+'</span>'+
+    '<span style="font-size:11px;color:#aaa;padding:2px 9px">'+t.date+'</span>'+
+    (ov?'<span class="b-ov">⚠ Overdue</span>':'')+
+    '<span class="badge '+(t.status==='pending'?'b-pending':t.status==='ongoing'?'b-ongoing':'b-completed')+'" style="margin-left:auto">'+t.status.toUpperCase()+'</span>'+
+    '</div>'+
+    '<div class="task-desc">'+t.minuteText+'</div>'+
+    '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">'+
+    '<span style="font-size:13px;color:#374151;font-weight:500">📅 Deadline: <strong style="color:'+(ov?'#991b1b':'#0f1535')+'">'+fmtD(t.deadline)+'</strong></span>'+
+    '<select class="inp" id="mts-'+t.mid+'-'+t.mi+'" style="width:150px;font-size:12px">'+
+    '<option value="pending"'+(t.status==='pending'?' selected':'')+'>Pending</option>'+
+    '<option value="ongoing"'+(t.status==='ongoing'?' selected':'')+'>Ongoing</option>'+
+    '<option value="completed"'+(t.status==='completed'?' selected':'')+'>Completed</option>'+
+    '</select>'+
+    '</div>'+
+    '<textarea class="inp" id="mtc-'+t.mid+'-'+t.mi+'" placeholder="Add a comment or update..." style="height:46px;font-size:12px;margin-bottom:10px">'+(t.lastComment||'')+'</textarea>'+
+    (t.lastComment?'<div class="task-note" style="margin-bottom:10px">"'+t.lastComment+'" — <em>'+(t.lastUpdatedBy||'?')+'</em></div>':'')+
+    '<div style="margin-bottom:10px">'+
+    '<div class="field-label" style="margin-bottom:5px">📎 Attach Proof / Evidence</div>'+
+    '<div class="file-upload-area" onclick="document.getElementById(\'proof-'+t.mid+'-'+t.mi+'\').click()">'+
+    '<input type="file" id="proof-'+t.mid+'-'+t.mi+'" accept="*/*" onchange="previewProof(this,\'proof-lbl-'+t.mid+'-'+t.mi+'\')">'+
+    '<div id="proof-lbl-'+t.mid+'-'+t.mi+'" style="font-size:12px;color:#6b7280">'+
+    (t.attachmentUrl?'<a href="'+t.attachmentUrl+'" target="_blank" class="attachment-link">📎 '+(t.attachmentName||'View File')+'</a> &nbsp; Click to replace':'Click to attach proof file')+
+    '</div></div></div>'+
+    '<button class="btn btn-or btn-sm" onclick="saveMyTask(\''+t.mid+'\','+t.mi+')">💾 Save Status & Proof</button>'+
+    '</div>';
+  }
+
+  var pend=all.filter(function(t){return t.status==='pending';});
+  var ong=all.filter(function(t){return t.status==='ongoing';});
+  var comp=all.filter(function(t){return t.status==='completed';});
+
+  return '<div class="page-head"><div><div class="page-title">My Tasks</div><div class="page-sub">All tasks assigned to you</div></div></div>'+
+  '<div class="task-filter-tabs">'+
+  '<button class="tftab'+(filt==='all'?' on':'')+'" onclick="setMyTaskFilter(\'all\')">All ('+all.length+')</button>'+
+  '<button class="tftab or'+(filt==='pending'?' on':'')+'" onclick="setMyTaskFilter(\'pending\')">⏳ Pending ('+pend.length+')</button>'+
+  '<button class="tftab'+(filt==='ongoing'?' on':'')+'" style="'+(filt==='ongoing'?'background:#2563eb;color:#fff;border-color:#2563eb':'')+'" onclick="setMyTaskFilter(\'ongoing\')">🔄 Ongoing ('+ong.length+')</button>'+
+  '<button class="tftab gr'+(filt==='completed'?' on':'')+'" onclick="setMyTaskFilter(\'completed\')">✅ Completed ('+comp.length+')</button>'+
+  '</div>'+
+  (filtered.length===0?
+  '<div style="text-align:center;padding:5rem;color:#aaa;background:#fff;border-radius:14px;border:1px solid #e5e7eb">'+
+  '<div style="font-size:52px;margin-bottom:14px">🎯</div>'+
+  '<div style="font-size:16px;font-weight:600;color:#374151;margin-bottom:5px">No tasks in this category</div>'+
+  '</div>':
+  filtered.map(tCard).join(''));
+}
+window.setMyTaskFilter=function(f){ST.myTaskFilter=f;render();};
+
+// ── DASHBOARD PAGE ────────────────────────────────
+function dashPage(){
+  var ms=ST.meetings.slice();
+  if(ST.dPer==='daily'){var t=today();ms=ms.filter(function(m){return m.date===t;});}
+  else if(ST.dPer==='weekly'){var w=new Date();w.setDate(w.getDate()-7);ms=ms.filter(function(m){return new Date(m.date)>=w;});}
+
+  // Collect all tasks from minutes
+  var at=[];
+  ms.forEach(function(m){
+    (m.minutes||[]).forEach(function(mn){
+      if(mn.type==='assign'&&mn.task){
+        at.push(Object.assign({},mn.task,{ref:m.type==='internal'?m.teamName:m.clientName,mid:m.id,meetingName:m.meetingName||'Untitled'}));
+      }
+    });
+  });
+  var ft=ST.dFil==='all'?at:at.filter(function(t){return t.status===ST.dFil;});
+  var ov=at.filter(function(t){return isOv(t.deadline,t.status);}).length;
+
+  return '<div class="page-head"><div><div class="page-title">Dashboard</div><div class="page-sub">NTF India — Meeting & Task Tracker</div></div></div>'+
+  '<div class="filter-bar">'+['daily','weekly','monthly'].map(function(p){return '<button class="filter-chip'+(ST.dPer===p?' active':'')+'" onclick="ST.dPer=\''+p+'\';render()">'+p[0].toUpperCase()+p.slice(1)+'</button>';}).join('')+'</div>'+
+  '<div class="stats-row stats-4" style="max-width:720px">'+
+  '<div class="stat-box"><div class="stat-num">'+ms.length+'</div><div class="stat-text">Meetings</div></div>'+
+  '<div class="stat-box"><div class="stat-num">'+at.filter(function(t){return t.status==='pending';}).length+'</div><div class="stat-text">Pending Tasks</div></div>'+
+  '<div class="stat-box"><div class="stat-num">'+at.filter(function(t){return t.status==='completed';}).length+'</div><div class="stat-text">Completed</div></div>'+
+  '<div class="stat-box" style="'+(ov?'border-color:#fca5a5':'')+'"><div class="stat-num" style="'+(ov?'color:#dc2626':'')+'">'+ov+'</div><div class="stat-text">Overdue</div></div>'+
+  '</div>'+
+  '<div class="filter-bar"><span style="font-size:12px;font-weight:700;color:#6b7280;margin-right:5px">FILTER TASKS:</span>'+
+  ['all','pending','ongoing','completed'].map(function(f){return '<button class="filter-chip'+(ST.dFil===f?' active':'')+'" onclick="ST.dFil=\''+f+'\';render()">'+f[0].toUpperCase()+f.slice(1)+'</button>';}).join('')+'</div>'+
+  '<div class="table-card"><table><thead><tr><th>#</th><th>Meeting</th><th>Minute / Task</th><th>Assigned To</th><th>Deadline</th><th>Status</th><th>Updated By</th>'+(canM()?'<th></th>':'')+'</tr></thead><tbody>'+
+  (ft.length===0?'<tr><td colspan="8" style="text-align:center;padding:2rem;color:#9ca3af">No tasks found</td></tr>':'')+
+  ft.map(function(t,i){var ov2=isOv(t.deadline,t.status);return '<tr>'+
+  '<td style="color:#9ca3af;font-weight:700">'+(i+1)+'</td>'+
+  '<td><span class="badge b-internal" style="font-size:10px">'+(t.ref||'-')+'</span><div style="font-size:10px;color:#aaa;margin-top:2px">'+(t.meetingName||'')+'</div></td>'+
+  '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(t.minuteText||t.minute||'-')+'</td>'+
+  '<td style="font-weight:600">'+(t.assignee||'—')+'</td>'+
+  '<td style="color:'+(ov2?'#991b1b':'inherit')+';font-weight:'+(ov2?700:400)+'">'+fmtD(t.deadline)+(ov2?' ⚠':'')+'</td>'+
+  '<td><span class="badge '+(t.status==='pending'?'b-pending':t.status==='ongoing'?'b-ongoing':'b-completed')+'">'+t.status+'</span></td>'+
+  '<td style="color:#9ca3af;font-size:11px">'+(t.lastUpdatedBy||'-')+'</td>'+
+  (canM()?'<td><button class="btn btn-rd btn-xs" onclick="delMtg(\''+t.mid+'\')">🗑</button></td>':'')+
+  '</tr>';}).join('')+
+  '</tbody></table></div>'+
+  '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><div style="font-size:15px;font-weight:700;color:#0f1535">All Meetings</div></div>'+
+  '<div class="table-card"><table><thead><tr><th>Date</th><th>Name</th><th>Type</th><th>Reference</th><th>Min</th><th>Tasks</th><th>Created By</th>'+(canM()?'<th></th>':'')+'</tr></thead><tbody>'+
+  (ms.length===0?'<tr><td colspan="8" style="text-align:center;padding:2rem;color:#9ca3af">No meetings</td></tr>':'')+
+  ms.map(function(m){
+    var tCnt=(m.minutes||[]).filter(function(mn){return mn.type==='assign';}).length;
+    return '<tr>'+
+    '<td style="font-weight:600">'+m.date+'</td>'+
+    '<td style="font-weight:700">'+(m.meetingName||'Untitled')+'</td>'+
+    '<td><span class="badge '+(m.type==='internal'?'b-internal':'b-external')+'" style="font-size:10px">'+m.type+'</span></td>'+
+    '<td>'+(m.type==='internal'?m.teamName:m.clientName)+'</td>'+
+    '<td>'+(m.minutes||[]).length+'</td>'+
+    '<td>'+tCnt+'</td>'+
+    '<td style="color:#888">'+(m.createdBy||'-')+'</td>'+
+    (canM()?'<td><button class="btn btn-rd btn-sm" onclick="delMtg(\''+m.id+'\')">🗑 Delete</button></td>':'')+
+    '</tr>';
+  }).join('')+
+  '</tbody></table></div>';
+}
+
+// ── ACTIONS ──────────────────────────────────────
+// Navigation
+window.openTeamMeetings=function(teamId){
+  ST.curTeamId=teamId;
+  loadMeetings().then(function(){ST.page='meetlist-int';render();});
+};
+window.openClientMeetings=function(clientId){
+  ST.curClientId=clientId;
+  loadMeetings().then(function(){ST.page='meetlist-ext';render();});
+};
+window.openMeeting=function(mid){
+  var m=ST.meetings.find(function(x){return x.id===mid;});
+  if(!m) return;
+  ST.cur=m; ST.page='meeting'; render();
+};
+window.goBackToList=function(){
+  if(ST.cur&&ST.cur.type==='internal'){ST.page='meetlist-int';}
+  else{ST.page='meetlist-ext';}
+  ST.cur=null; render();
+};
+
+// New Meeting
+window.newMeeting=function(){
+  showModal('New Meeting',[
+    {k:'meetingName',l:'Meeting Name',ph:'e.g. Weekly Sync, Sprint Review'}
+  ],'Create Meeting',function(v){
+    if(!v.meetingName){toast('Enter meeting name','err');return;}
+    var isI=ST.page==='meetlist-int';
+    var m;
+    if(isI){
+      var team=ST.teams.find(function(t){return t.id===ST.curTeamId;});
+      m={type:'internal',teamId:team.id,teamName:team.name,meetingName:v.meetingName,
+         date:today(),attendees:[{name:ST.profile.name,email:ST.profile.email}],
+         minutes:[],tasks:[],createdBy:ST.profile.name,createdByUid:ST.user.uid};
+    } else {
+      var cl=ST.clients.find(function(c){return c.id===ST.curClientId;});
+      m={type:'external',clientId:cl.id,clientName:cl.name,clientContact:cl.contact,
+         meetingName:v.meetingName,date:today(),
+         attendees:[{name:ST.profile.name,email:ST.profile.email}],
+         minutes:[],tasks:[],createdBy:ST.profile.name,createdByUid:ST.user.uid};
+    }
+    saveMeeting(m).then(function(){
+      ST.cur=m; ST.page='meeting'; render();
+      toast('Meeting "'+v.meetingName+'" created!','ok');
+    });
+  });
+};
+
+// Teams
+window.addTeam=function(){
+  showModal('Add New Team',[{k:'name',l:'Team Name',ph:'e.g. Design'},{k:'icon',l:'Emoji Icon',ph:'e.g. 🎨',v:'📋'}],'Add Team',function(v){
+    if(!v.name){toast('Enter team name','err');return;}
+    db.collection('teams').add({name:v.name,icon:v.icon||'📋'}).then(function(r){
+      ST.teams.push({id:r.id,name:v.name,icon:v.icon||'📋'});
+      toast('Team "'+v.name+'" added!','ok');render();
+    });
+  });
+};
+window.editTeam=function(id){
+  var t=ST.teams.find(function(x){return x.id===id;});
+  showModal('Edit Team',[{k:'name',l:'Team Name',v:t.name},{k:'icon',l:'Emoji Icon',v:t.icon}],'Update',function(v){
+    if(!v.name) return;
+    db.collection('teams').doc(id).update({name:v.name,icon:v.icon||t.icon}).then(function(){
+      var i=ST.teams.findIndex(function(x){return x.id===id;});
+      ST.teams[i]=Object.assign({},ST.teams[i],{name:v.name,icon:v.icon||t.icon});
+      ST.meetings.filter(function(m){return m.teamId===id;}).forEach(function(m){m.teamName=v.name;});
+      toast('Team updated!','ok');render();
+    });
+  });
+};
+window.delTeam=function(id){
+  if(!confirm('Delete this team?')) return;
+  db.collection('teams').doc(id).delete().then(function(){
+    ST.teams=ST.teams.filter(function(t){return t.id!==id;});
+    toast('Team deleted','ok');render();
+  });
+};
+
+// Clients
+window.addClient=function(){
+  showModal('Add New Client',[{k:'name',l:'Company Name',ph:'e.g. Acme Corporation'},{k:'contact',l:'Contact Email',ph:'contact@company.com'}],'Add Client',function(v){
+    if(!v.name||!v.contact){toast('Fill both fields','err');return;}
+    db.collection('clients').add({name:v.name,contact:v.contact,createdAt:firebase.firestore.FieldValue.serverTimestamp()}).then(function(r){
+      ST.clients.push({id:r.id,name:v.name,contact:v.contact});
+      toast('Client "'+v.name+'" added!','ok');render();
+    });
+  });
+};
+window.delClient=function(id){
+  if(!confirm('Delete this client?')) return;
+  db.collection('clients').doc(id).delete().then(function(){
+    ST.clients=ST.clients.filter(function(c){return c.id!==id;});
+    toast('Client deleted','ok');render();
+  });
+};
+
+// Attendees
+window.quickAddAtt=function(email,name){
+  if(!ST.cur) return;
+  if(!ST.cur.attendees) ST.cur.attendees=[];
+  if(ST.cur.attendees.find(function(a){return a.email===email;})){toast('Already added','inf');return;}
+  ST.cur.attendees.push({name:name,email:email});
+  saveMeeting(ST.cur).then(function(){toast(name+' added!','ok');render();});
+};
+window.removeAtt=function(i){
+  if(!ST.cur) return;
+  ST.cur.attendees.splice(i,1);
+  saveMeeting(ST.cur).then(function(){render();});
+};
+window.addAtt=function(){
+  var n=(document.getElementById('att-name')||{}).value||'';
+  var e=(document.getElementById('att-email')||{}).value||'';
+  n=n.trim();e=e.trim();
+  if(!n||!e){toast('Enter both name and email','err');return;}
+  if(!ST.cur.attendees) ST.cur.attendees=[];
+  if(ST.cur.attendees.find(function(a){return a.email===e;})){toast('Already added','inf');return;}
+  ST.cur.attendees.push({name:n,email:e});
+  saveMeeting(ST.cur).then(function(){toast(n+' added!','ok');render();});
+};
+
+// Radio toggle for minute type
+document.addEventListener('change',function(e){
+  if(e.target.name==='mintype'){
+    var af=document.getElementById('assign-fields');
+    if(af) af.style.display=e.target.value==='assign'?'block':'none';
+  }
+});
+window.previewProof=function(inp,lblId){
+  var lbl=document.getElementById(lblId);
+  if(lbl&&inp.files[0]) lbl.textContent='📎 '+inp.files[0].name+' (ready to upload)';
+};
+
+// Add Minute
+window.addMinute=function(){
+  var text=(document.getElementById('min-input')||{}).value||'';
+  text=text.trim();
+  if(!text){toast('Type the minute text first','err');return;}
+  var typeEl=document.querySelector('input[name="mintype"]:checked');
+  var type=typeEl?typeEl.value:'note';
+  var fileInput=document.getElementById('min-file');
+  var file=fileInput&&fileInput.files[0]?fileInput.files[0]:null;
+
+  var minObj={text:text,type:type,createdBy:ST.profile.name,createdByUid:ST.user.uid};
+
+  if(type==='assign'){
+    var asel=document.getElementById('min-assignee');
+    var dsel=document.getElementById('min-deadline');
+    var ssel=document.getElementById('min-status');
+    var assigneeEmail=asel?asel.value:'';
+    var assigneeName=asel&&asel.selectedIndex>0?asel.options[asel.selectedIndex].text:'';
+    if(!assigneeEmail){toast('Select a person to assign','err');return;}
+    minObj.task={assignee:assigneeName,assigneeEmail:assigneeEmail,deadline:dsel?dsel.value:'',status:ssel?ssel.value:'pending',lastUpdatedBy:'',lastComment:''};
+  }
+
+  function doSave(url,name){
+    if(url){minObj.attachmentUrl=url;minObj.attachmentName=name;}
+    if(!ST.cur.minutes) ST.cur.minutes=[];
+    ST.cur.minutes.push(minObj);
+    saveMeeting(ST.cur).then(function(){toast('Minute added!','ok');render();});
+  }
+
+  if(file){
+    toast('Uploading file...','inf');
+    var path='attachments/'+ST.cur.id+'/'+Date.now()+'_'+file.name;
+    uploadFile(file,path).then(function(url){doSave(url,file.name);}).catch(function(e){toast('Upload failed: '+e.message,'err');});
+  } else {
+    doSave(null,null);
+  }
+};
+
+// Delete Minute
+window.delMinute=function(i){
+  if(!confirm('Delete this minute?')) return;
+  ST.cur.minutes.splice(i,1);
+  saveMeeting(ST.cur).then(function(){render();});
+};
+
+// Edit Minute
+window.editMinute=function(i){
+  var mn=ST.cur.minutes[i];
+  var atts=ST.cur.attendees||[];
+  var attOpts=atts.map(function(a){return '<option value="'+a.email+'"'+(mn.task&&mn.task.assigneeEmail===a.email?' selected':'')+'>'+a.name+'</option>';}).join('');
+
+  var d=document.createElement('div');d.className='modal-bg';
+  d.innerHTML='<div class="modal-card">'+
+  '<div class="modal-title">Edit Minute</div>'+
+  '<div class="modal-field"><label>Minute Text</label><textarea class="inp" id="edit-min-text" style="height:80px">'+mn.text+'</textarea></div>'+
+  (mn.type==='assign'?
+  '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:12px;margin-bottom:10px">'+
+  '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">'+
+  '<div><div class="field-label" style="margin-bottom:5px">Assign To</div><select class="inp" id="edit-assignee"><option value="">Select</option>'+attOpts+'</select></div>'+
+  '<div><div class="field-label" style="margin-bottom:5px">Deadline</div><input type="date" class="inp" id="edit-deadline" value="'+(mn.task&&mn.task.deadline||'')+'"></div>'+
+  '<div><div class="field-label" style="margin-bottom:5px">Status</div><select class="inp" id="edit-status"><option value="pending"'+(mn.task&&mn.task.status==='pending'?' selected':'')+'>Pending</option><option value="ongoing"'+(mn.task&&mn.task.status==='ongoing'?' selected':'')+'>Ongoing</option><option value="completed"'+(mn.task&&mn.task.status==='completed'?' selected':'')+'>Completed</option></select></div>'+
+  '</div></div>':'')+ 
+  '<div class="modal-actions"><button class="btn btn-gy btn-sm" id="ec">Cancel</button><button class="btn btn-or btn-sm" id="es">Save Changes</button></div>'+
+  '</div>';
+  document.body.appendChild(d);
+  d.querySelector('#ec').onclick=function(){d.remove();};
+  d.querySelector('#es').onclick=function(){
+    var newText=(document.getElementById('edit-min-text')||{}).value||'';
+    newText=newText.trim();
+    if(!newText){toast('Text cannot be empty','err');return;}
+    ST.cur.minutes[i].text=newText;
+    if(mn.type==='assign'&&mn.task){
+      var asel=document.getElementById('edit-assignee');
+      var dsel=document.getElementById('edit-deadline');
+      var ssel=document.getElementById('edit-status');
+      if(asel){ST.cur.minutes[i].task.assigneeEmail=asel.value;var opt=asel.options[asel.selectedIndex];ST.cur.minutes[i].task.assignee=opt&&opt.value?opt.text:'';}
+      if(dsel) ST.cur.minutes[i].task.deadline=dsel.value;
+      if(ssel) ST.cur.minutes[i].task.status=ssel.value;
+      ST.cur.minutes[i].task.lastUpdatedBy=ST.profile.name;
+    }
+    d.remove();
+    saveMeeting(ST.cur).then(function(){toast('Minute updated!','ok');render();});
+  };
+  d.onclick=function(e){if(e.target===d)d.remove();};
+};
+
+// Save My Task
+window.saveMyTask=function(mid,mi){
+  var m=ST.meetings.find(function(x){return x.id===mid;}); if(!m) return;
+  var ss=document.getElementById('mts-'+mid+'-'+mi);
+  var cs=document.getElementById('mtc-'+mid+'-'+mi);
+  var fileInput=document.getElementById('proof-'+mid+'-'+mi);
+  var file=fileInput&&fileInput.files[0]?fileInput.files[0]:null;
+  var prevStatus=m.minutes[mi].task.status;
+  m.minutes[mi].task.status=ss.value;
+  if(cs&&cs.value.trim()) m.minutes[mi].task.lastComment=cs.value.trim();
+  m.minutes[mi].task.lastUpdatedBy=ST.profile.name;
+
+  function doSave(url,name){
+    if(url){m.minutes[mi].attachmentUrl=url;m.minutes[mi].attachmentName=name;}
+    saveMeeting(m).then(function(){
+      toast('Status updated to "'+ss.value+'"!','ok');
+      if(ss.value==='completed'&&prevStatus!=='completed'){
+        var mgrs=getMgrEmails();
+        if(mgrs.length){
+          var subj='[NTF MeetTrack] ✅ Task Completed — '+(m.meetingName||m.teamName||m.clientName);
+          var body='Dear Manager,\n\n'+ST.profile.name+' has completed a task.\n\nMeeting: '+(m.meetingName||'Untitled')+'\nTask: '+m.minutes[mi].text+'\nCompleted by: '+ST.profile.name+'\nDeadline was: '+fmtD(m.minutes[mi].task.deadline);
+          openGmail(mgrs.join(','),subj,body);
+          toast('Managers notified!','ok');
+        }
+      }
+      return loadMeetings();
+    }).then(function(){render();});
+  }
+
+  if(file){
+    toast('Uploading proof...','inf');
+    var path='proofs/'+mid+'/'+Date.now()+'_'+file.name;
+    uploadFile(file,path).then(function(url){doSave(url,file.name);}).catch(function(e){toast('Upload failed: '+e.message,'err');});
+  } else {
+    doSave(null,null);
+  }
+};
+
+// Delete Meeting
+window.delMtg=function(id){
+  if(!confirm('Delete this meeting permanently?')) return;
+  db.collection('meetings').doc(id).delete().then(function(){
+    ST.meetings=ST.meetings.filter(function(m){return m.id!==id;});
+    toast('Meeting deleted','ok');render();
+  });
+};
+
+// ── EXPORT PDF ──────────────────────────────────
+window.exportPDF=function(){
+  if(typeof window.jspdf==='undefined'){toast('PDF library loading...','inf');return;}
+  var doc=new window.jspdf.jsPDF();
+  var m=ST.cur;
+  var y=20;
+  doc.setFontSize(18);doc.setTextColor(14,27,62);
+  doc.text('NTF MeetTrack - Minutes of Meeting',14,y);y+=10;
+  doc.setFontSize(12);doc.setTextColor(100,100,100);
+  doc.text('Meeting: '+(m.meetingName||'Untitled'),14,y);y+=7;
+  doc.text('Type: '+m.type+' | Reference: '+(m.teamName||m.clientName),14,y);y+=7;
+  doc.text('Date: '+m.date+' | Created by: '+m.createdBy,14,y);y+=7;
+  doc.text('Attendees: '+(m.attendees||[]).map(function(a){return a.name;}).join(', '),14,y);y+=12;
+  doc.setFontSize(14);doc.setTextColor(14,27,62);
+  doc.text('Minutes:',14,y);y+=8;
+  (m.minutes||[]).forEach(function(mn,i){
+    doc.setFontSize(12);doc.setTextColor(50,50,50);
+    var txt=(i+1)+'. ['+(mn.type==='assign'?'TASK':'NOTE')+'] '+mn.text;
+    var lines=doc.splitTextToSize(txt,180);
+    if(y+lines.length*7>280){doc.addPage();y=20;}
+    doc.text(lines,14,y);y+=lines.length*7;
+    if(mn.type==='assign'&&mn.task){
+      doc.setFontSize(10);doc.setTextColor(100,100,100);
+      doc.text('   Assigned to: '+(mn.task.assignee||'-')+' | Deadline: '+fmtD(mn.task.deadline)+' | Status: '+mn.task.status,14,y);y+=6;
+    }
+    y+=3;
+  });
+  doc.save((m.meetingName||'meeting')+'_minutes.pdf');
+  toast('PDF downloaded!','ok');
+};
+
+// ── EXPORT EXCEL (CSV) ──────────────────────────
+window.exportExcel=function(){
+  var m=ST.cur;
+  var rows=[['#','Type','Minute','Assigned To','Deadline','Status','Comment']];
+  (m.minutes||[]).forEach(function(mn,i){
+    rows.push([
+      i+1,
+      mn.type==='assign'?'TASK':'NOTE',
+      '"'+(mn.text||'').replace(/"/g,'""')+'"',
+      mn.task?mn.task.assignee||'-':'-',
+      mn.task?fmtD(mn.task.deadline):'-',
+      mn.task?mn.task.status:'-',
+      mn.task?'"'+(mn.task.lastComment||'').replace(/"/g,'""')+'"':'-'
+    ]);
+  });
+  var csv=rows.map(function(r){return r.join(',');}).join('\n');
+  var blob=new Blob([csv],{type:'text/csv'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');a.href=url;a.download=(m.meetingName||'meeting')+'_minutes.csv';a.click();
+  URL.revokeObjectURL(url);
+  toast('Excel/CSV downloaded!','ok');
+};
+
+// ── MODAL ────────────────────────────────────────
+function showModal(title,fields,saveLbl,onSave){
+  document.querySelectorAll('.modal-bg').forEach(function(m){m.remove();});
+  var d=document.createElement('div');d.className='modal-bg';
+  d.innerHTML='<div class="modal-card"><div class="modal-title">'+title+'</div>'+
+  fields.map(function(f){
+    return '<div class="modal-field"><label>'+f.l+'</label><input class="inp modal-inp" data-k="'+f.k+'" placeholder="'+(f.ph||'')+'" value="'+(f.v||'')+'" type="'+(f.t||'text')+'"></div>';
+  }).join('')+
+  '<div class="modal-actions"><button class="btn btn-gy btn-sm" id="modal-cancel">Cancel</button><button class="btn btn-or btn-sm" id="modal-save">'+saveLbl+'</button></div></div>';
+  document.body.appendChild(d);
+  d.querySelector('#modal-cancel').onclick=function(){d.remove();};
+  d.querySelector('#modal-save').onclick=function(){
+    var v={};d.querySelectorAll('.modal-inp').forEach(function(i){v[i.dataset.k]=i.value.trim();});
+    d.remove();onSave(v);
+  };
+  d.onclick=function(e){if(e.target===d)d.remove();};
+  setTimeout(function(){var f=d.querySelector('.modal-inp');if(f)f.focus();},100);
+}
+</script>
+</body>
+</html>
