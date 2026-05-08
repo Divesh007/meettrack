@@ -8,6 +8,7 @@
 <script src="https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-auth-compat.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-firestore-compat.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;font-size:14px;color:#1a1a2e;min-height:100vh}
@@ -169,7 +170,38 @@ tr:hover td{background:#fafafa}
 .file-upload-area input{display:none}
 /* VIEW ONLY */
 .view-only-banner{background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:8px 14px;font-size:12px;color:#854d0e;margin-bottom:12px;font-weight:600;display:flex;align-items:center;gap:6px}
-@media print{.sidebar,.btn,.back-link,.task-actions,.team-card-actions,.filter-bar,.page-head .btn,.min-actions{display:none!important}.main-content{margin-left:0!important}}
+/* SEARCH */
+.sb-search{padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.08)}
+.sb-search input{width:100%;padding:7px 10px;border-radius:8px;border:none;background:rgba(255,255,255,.1);color:#fff;font-size:12px;font-family:inherit;outline:none}
+.sb-search input::placeholder{color:rgba(255,255,255,.35)}
+.search-overlay{position:fixed;top:0;left:210px;right:0;bottom:0;z-index:200;background:rgba(10,14,40,.45)}
+.search-box{background:#fff;border-radius:14px;margin:60px auto;max-width:560px;max-height:72vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.search-res-item{padding:12px 16px;border-bottom:1px solid #f3f4f6;cursor:pointer;display:flex;gap:12px;align-items:flex-start}
+.search-res-item:hover{background:#fafafa}
+.search-res-item:last-child{border:none}
+/* DEADLINE POPUP */
+.dl-popup-bg{position:fixed;inset:0;background:rgba(10,14,40,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px}
+.dl-popup{background:#fff;border-radius:16px;padding:24px;width:100%;max-width:500px;box-shadow:0 24px 64px rgba(0,0,0,.3);max-height:85vh;overflow-y:auto}
+.dl-row{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid #f3f4f6}
+.dl-row:last-child{border:none}
+/* STATUS */
+.b-scheduled{background:#f0f9ff;color:#075985;border:1px solid #bae6fd}
+.b-s-ongoing{background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe}
+.b-s-completed{background:#f0fdf4;color:#166534;border:1px solid #bbf7d0}
+.b-s-cancelled{background:#fef2f2;color:#991b1b;border:1px solid #fca5a5}
+/* CHART */
+.chart-wrap{position:relative;height:260px;margin-top:10px}
+/* PERFORMANCE */
+.perf-emp-card{background:#fff;border:1.5px solid #e5e7eb;border-radius:14px;padding:18px 20px;margin-bottom:12px;cursor:pointer;transition:all .15s;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.perf-emp-card:hover{border-color:#e8600a;box-shadow:0 4px 14px rgba(232,96,10,.1)}
+.perf-emp-card.selected{border-color:#e8600a;background:#fff7ed}
+.perf-rate-bar{height:8px;background:#f3f4f6;border-radius:10px;overflow:hidden;flex:1}
+.perf-rate-fill{height:100%;border-radius:10px;transition:width .4s ease}
+.emp-detail-panel{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.perf-search-wrap{position:relative;margin-bottom:16px}
+.perf-search-wrap span{position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:15px;pointer-events:none}
+.perf-search-bar{background:#fff;border:1.5px solid #e5e7eb;border-radius:10px;padding:9px 14px 9px 36px;font-size:13px;font-family:inherit;color:#111;width:100%;outline:none;transition:border-color .2s}
+.perf-search-bar:focus{border-color:#e8600a}{.sidebar,.btn,.back-link,.task-actions,.team-card-actions,.filter-bar,.page-head .btn,.min-actions{display:none!important}.main-content{margin-left:0!important}}
 </style>
 </head>
 <body>
@@ -200,7 +232,7 @@ var ST = {
   aMode:'login', aRole:'employee', aErr:'',
   allUsers:[], teams:[], clients:[], meetings:[],
   cur:null, curTeamId:null, curClientId:null,
-  dFil:'all', dPer:'monthly', myTaskFilter:'all'
+  dFil:'all', dPer:'monthly', dTeam:'all', myTaskFilter:'all', perfSearch:'', perfSelectedEmp:'', perfPer:'overall'
 };
 
 // ── HELPERS ─────────────────────────────────────
@@ -226,6 +258,26 @@ function toast(msg, type){
   el.innerHTML = (type==='ok'?'✓':type==='err'?'✕':'ℹ')+' '+msg;
   document.body.appendChild(el);
   setTimeout(function(){ el.remove(); }, 3000);
+}
+// ── BASE64 FILE UPLOAD (no Firebase Storage needed) ──
+function uploadFile(file){
+  return new Promise(function(resolve,reject){
+    if(file.size>900000){reject(new Error('Max 900KB per file'));return;}
+    var r=new FileReader();
+    r.onload=function(e){resolve(e.target.result);};
+    r.onerror=function(){reject(new Error('Could not read file'));};
+    r.readAsDataURL(file);
+  });
+}
+function downloadFile(url,name){
+  if(!url)return;
+  if(url.startsWith('data:image')){
+    var w=window.open('','_blank');
+    if(w)w.document.write('<html><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="'+url+'" style="max-width:100%;max-height:100vh;object-fit:contain"></body></html>');
+  } else {
+    var a=document.createElement('a');a.href=url;a.download=name||'file';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+  }
 }
 function openGmail(to, subject, body){
   window.open('https://mail.google.com/mail/?view=cm&to='+encodeURIComponent(to)+'&su='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body),'_blank');
@@ -258,11 +310,26 @@ function loadClients(){
 }
 function loadMeetings(){
   return db.collection('meetings').orderBy('createdAt','desc').get().then(function(snap){
-    ST.meetings = snap.docs.map(function(d){ return Object.assign({id:d.id},d.data()); });
+    var all=snap.docs.map(function(d){ return Object.assign({id:d.id},d.data()); });
+    ST.meetings=filterMeetingsForUser(all);
   }).catch(function(){
     return db.collection('meetings').get().then(function(snap){
-      ST.meetings = snap.docs.map(function(d){ return Object.assign({id:d.id},d.data()); });
+      var all=snap.docs.map(function(d){ return Object.assign({id:d.id},d.data()); });
+      ST.meetings=filterMeetingsForUser(all);
     });
+  });
+}
+
+// Director & boss see all meetings.
+// Employees only see meetings where they are the creator OR listed as an attendee.
+function filterMeetingsForUser(all){
+  if(!ST.profile||!ST.user) return all;
+  if(ST.profile.role==='director'||ST.profile.role==='boss') return all;
+  var myEmail=ST.profile.email;
+  var myUid=ST.user.uid;
+  return all.filter(function(m){
+    if(m.createdByUid===myUid) return true;
+    return (m.attendees||[]).some(function(a){ return a.email===myEmail; });
   });
 }
 function saveMeeting(m){
@@ -339,7 +406,7 @@ auth.onAuthStateChanged(function(user){
       if(!snap.exists){ auth.signOut(); ST.page='auth'; render(); return; }
       ST.profile=Object.assign({id:snap.id},snap.data());
       return loadAll();
-    }).then(function(){ ST.page='home'; render(); })
+    }).then(function(){ ST.page='home'; render(); setTimeout(checkDeadlines,800); })
     .catch(function(e){ ST.page='auth'; ST.aErr='Connection error: '+e.message; render(); });
   } else {
     ST.user=null; ST.profile=null; ST.page='auth'; render();
@@ -350,8 +417,20 @@ auth.onAuthStateChanged(function(user){
 function render(){
   var root=document.getElementById('root');
   if(ST.page==='auth'){ root.innerHTML=authHTML(); return; }
-  root.innerHTML='<div class="app-layout">'+sidebarHTML()+'<div class="main-content" id="main"></div></div>';
+  root.innerHTML='<div class="app-layout">'+sidebarHTML()+'<div class="main-content" id="main"></div></div>'+
+  '<div id="search-overlay" class="search-overlay" style="display:none" onclick="if(event.target===this)closeSearch()">'+
+  '<div id="search-box" class="search-box"><div style="padding:14px 16px;border-bottom:1px solid #f3f4f6;font-size:12px;font-weight:700;color:#0f1535;display:flex;justify-content:space-between;align-items:center">Search Results <span style="color:#9ca3af;cursor:pointer;font-size:16px" onclick="closeSearch()">×</span></div></div>'+
+  '</div>';
   document.getElementById('main').innerHTML=pageHTML();
+  // Render charts if on dashboard
+  if(ST.page==='dashboard'){
+    var ms2=ST.meetings.slice();
+    if(ST.dPer==='daily'){var t2=today();ms2=ms2.filter(function(m){return m.date===t2;});}
+    else if(ST.dPer==='weekly'){var w2=new Date();w2.setDate(w2.getDate()-7);ms2=ms2.filter(function(m){return new Date(m.date)>=w2;});}
+    var at2=[];
+    ms2.forEach(function(m){(m.minutes||[]).forEach(function(mn){if(mn.type==='assign'&&mn.task)at2.push(Object.assign({},mn.task));});});
+    setTimeout(function(){renderCharts(at2,ms2);},50);
+  }
 }
 
 // ── AUTH HTML ────────────────────────────────────
@@ -436,6 +515,39 @@ window.forgotPassword = function(){
   };
 };
 
+
+window.forgotPassword = function(){
+  document.querySelectorAll('.modal-bg').forEach(function(m){m.remove();});
+  var d=document.createElement('div'); d.className='modal-bg';
+  d.innerHTML='<div class="modal-card" style="max-width:380px">'+
+    '<div class="modal-title">Reset Password</div>'+
+    '<p style="font-size:13px;color:#6b7280;margin-bottom:14px">Enter your email — we will send a reset link.</p>'+
+    '<div class="modal-field"><label>Email Address</label><input class="inp" id="fp-email" type="email" placeholder="your@email.com"></div>'+
+    '<div id="fp-msg" style="display:none;padding:9px 12px;border-radius:8px;font-size:12px;margin-bottom:10px"></div>'+
+    '<div class="modal-actions">'+
+    '<button class="btn btn-gy btn-sm" id="fp-cancel">Cancel</button>'+
+    '<button class="btn btn-or btn-sm" id="fp-send">Send Reset Link</button>'+
+    '</div></div>';
+  document.body.appendChild(d);
+  d.querySelector('#fp-cancel').onclick=function(){d.remove();};
+  d.onclick=function(e){if(e.target===d)d.remove();};
+  setTimeout(function(){var f=d.querySelector('#fp-email');if(f)f.focus();},100);
+  d.querySelector('#fp-send').onclick=function(){
+    var email=(d.querySelector('#fp-email')||{}).value||''; email=email.trim();
+    var msg=d.querySelector('#fp-msg'); var btn=d.querySelector('#fp-send');
+    if(!email){msg.style.display='block';msg.style.background='#fff5f5';msg.style.border='1px solid #fca5a5';msg.style.color='#991b1b';msg.textContent='Enter your email.';return;}
+    btn.disabled=true; btn.textContent='Sending...';
+    auth.sendPasswordResetEmail(email).then(function(){
+      msg.style.display='block';msg.style.background='#f0fdf4';msg.style.border='1px solid #bbf7d0';msg.style.color='#166534';
+      msg.innerHTML='✓ Reset link sent to <strong>'+email+'</strong>';
+      btn.style.display='none'; d.querySelector('#fp-cancel').textContent='Close';
+    }).catch(function(e){
+      msg.style.display='block';msg.style.background='#fff5f5';msg.style.border='1px solid #fca5a5';msg.style.color='#991b1b';
+      msg.textContent=e.code==='auth/user-not-found'?'No account with this email.':e.code==='auth/invalid-email'?'Invalid email.':e.message;
+      btn.disabled=false; btn.textContent='Send Reset Link';
+    });
+  };
+};
 window.switchAuth=function(){ST.aMode=ST.aMode==='login'?'register':'login';ST.aErr='';render();};
 window.doAuth=function(){
   var email=(document.getElementById('a-email')||{}).value||'';
@@ -472,11 +584,13 @@ function sidebarHTML(){
   var p=ST.page,u=ST.profile;
   return '<div class="sidebar">'+
   '<div class="sb-brand"><div class="sb-ntf">NTF India</div><div class="sb-name">Meet<span>Track</span></div><div class="sb-sub">Meeting Management System</div></div>'+
-  '<div class="sb-section">Meetings</div>'+
+  '<div class="sb-search"><input type="text" id="sb-search-inp" placeholder="🔍 Search meetings..." oninput="doSearch(this.value)" onfocus="showSearchOverlay()" autocomplete="off"></div>'+
+  '<div class="sb-section">Navigation</div>'+
   '<div class="nav-item'+(p==='home'?' active':'')+'" onclick="goPage(\'home\')">🏠 Home</div>'+
   '<div class="nav-item'+(p==='internal'||p==='meetlist-int'||p==='meeting'&&ST.cur&&ST.cur.type==='internal'?' active':'')+'" onclick="goPage(\'internal\')">👥 Internal</div>'+
   '<div class="nav-item'+(p==='external'||p==='meetlist-ext'||p==='meeting'&&ST.cur&&ST.cur.type==='external'?' active':'')+'" onclick="goPage(\'external\')">🌐 External</div>'+
   '<div class="nav-item'+(p==='mytasks'?' active':'')+'" onclick="goPage(\'mytasks\')">✅ My Tasks</div>'+
+  (canM()?'<div class="nav-item'+(p==='performance'?' active':'')+'" onclick="goPage(\'performance\')">🏅 Performance</div>':'')+
   '<div class="sb-section">Reports</div>'+
   '<div class="nav-item'+(p==='dashboard'?' active':'')+'" onclick="goPage(\'dashboard\')">📊 Dashboard</div>'+
   '<div class="sb-user">'+
@@ -487,10 +601,11 @@ function sidebarHTML(){
 }
 window.goPage=function(pg){
   ST.page=pg; ST.cur=null; ST.curTeamId=null; ST.curClientId=null;
+  ST.perfSearch=''; ST.perfSelectedEmp='';
   var p=Promise.resolve();
   if(pg==='internal') p=loadTeams();
   else if(pg==='external') p=loadClients();
-  else if(pg==='dashboard'||pg==='mytasks') p=loadMeetings();
+  else if(pg==='dashboard'||pg==='mytasks'||pg==='performance') p=loadMeetings();
   p.then(function(){render();});
 };
 
@@ -504,6 +619,8 @@ function pageHTML(){
   if(ST.page==='meeting') return meetingPage();
   if(ST.page==='mytasks') return myTasksPage();
   if(ST.page==='dashboard') return dashPage();
+  if(ST.page==='performance') return performancePage();
+  if(ST.page==='profile') return empProfilePage(ST.profileEmail||'');
   return homePage();
 }
 
@@ -513,6 +630,10 @@ function homePage(){
   var ct=ST.meetings.reduce(function(a,m){return a+(m.tasks||[]).filter(function(t){return t.status==='completed';}).length;},0);
   var ov=ST.meetings.reduce(function(a,m){return a+(m.tasks||[]).filter(function(t){return isOv(t.deadline,t.status);}).length;},0);
   var mt=ST.meetings.reduce(function(a,m){return a+(m.tasks||[]).filter(function(t){return t.assigneeEmail===(u&&u.email);}).length;},0);
+  // Build team/client list for filter
+  var teamNames=ST.teams.map(function(t){return t.name;});
+  var clientNames=ST.clients.map(function(c){return c.name;});
+  var allTeams=['all'].concat(teamNames).concat(clientNames);
   return '<div class="page-head"><div><div class="page-title">Good day, '+(u&&u.name?u.name.split(' ')[0]:'')+'! 👋</div>'+
   '<div class="page-sub">NTF India · '+new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'})+'</div></div></div>'+
   '<div class="home-grid">'+
@@ -530,6 +651,10 @@ function homePage(){
 // ── INTERNAL PAGE (Teams) ────────────────────────
 function internalPage(){
   var mg=canM();
+  // Build team/client list for filter
+  var teamNames=ST.teams.map(function(t){return t.name;});
+  var clientNames=ST.clients.map(function(c){return c.name;});
+  var allTeams=['all'].concat(teamNames).concat(clientNames);
   return '<div class="page-head"><div><div class="page-title">Internal Meetings</div><div class="page-sub">Click a team to view its meetings</div></div>'+
   '<button class="btn btn-or" onclick="addTeam()">+ Add Team</button></div>'+
   '<div class="teams-grid">'+
@@ -546,6 +671,10 @@ function internalPage(){
 
 // ── EXTERNAL PAGE (Clients) ──────────────────────
 function externalPage(){
+  // Build team/client list for filter
+  var teamNames=ST.teams.map(function(t){return t.name;});
+  var clientNames=ST.clients.map(function(c){return c.name;});
+  var allTeams=['all'].concat(teamNames).concat(clientNames);
   return '<div class="page-head"><div><div class="page-title">External Meetings</div><div class="page-sub">Click a client to view meetings</div></div>'+
   '<button class="btn btn-or" onclick="addClient()">+ Add Client</button></div>'+
   (ST.clients.length===0?'<div style="text-align:center;padding:4rem;color:#aaa;background:#fff;border-radius:14px;border:1px solid #e5e7eb"><div style="font-size:48px;margin-bottom:14px">🌐</div><div style="font-size:16px;font-weight:600;color:#374151;margin-bottom:6px">No clients yet</div><button class="btn btn-or" onclick="addClient()" style="margin-top:10px">+ Add First Client</button></div>':'')+
@@ -573,6 +702,7 @@ function meetListPage(type){
   '<div><div class="page-title">'+(isI?'👥':'🌐')+' '+parentName+'</div><div class="page-sub">All meetings — newest first</div></div>'+
   '<button class="btn btn-or" onclick="newMeeting()">+ New Meeting</button>'+
   '</div>'+
+  (!canM()?'<div class="view-only-banner" style="margin-bottom:14px">🔒 You can only see meetings you attended or created</div>':'')+
   (meetings.length===0?
   '<div style="text-align:center;padding:4rem;color:#aaa;background:#fff;border-radius:14px;border:1px solid #e5e7eb"><div style="font-size:48px;margin-bottom:14px">📋</div><div style="font-size:16px;font-weight:600;color:#374151;margin-bottom:6px">No meetings yet</div><div style="font-size:13px;margin-bottom:16px">Click "+ New Meeting" to start the first one</div><button class="btn btn-or" onclick="newMeeting()">+ New Meeting</button></div>':
   meetings.map(function(m){
@@ -586,6 +716,7 @@ function meetListPage(type){
     '<div style="font-size:12px;color:#888;margin-top:3px">'+m.date+' &nbsp;·&nbsp; '+(m.attendees||[]).length+' attendees &nbsp;·&nbsp; '+minCnt+' minutes &nbsp;·&nbsp; '+taskCnt+' tasks</div>'+
     '</div>'+
     '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px">'+
+    '<span class="badge '+(m.status==='completed'?'b-s-completed':m.status==='cancelled'?'b-s-cancelled':m.status==='ongoing'?'b-s-ongoing':'b-scheduled')+'">'+(m.status||'scheduled')+'</span>'+
     (pendCnt>0?'<span class="badge b-pending">'+pendCnt+' pending</span>':'<span class="badge b-completed">All done</span>')+
     '<div style="font-size:11px;color:#aaa">By '+m.createdBy+'</div>'+
     '</div>'+
@@ -651,6 +782,7 @@ function meetingPage(){
       '<div class="min-actions">'+
       (canEdit?'<button class="btn btn-or btn-sm" onclick="editMinute('+i+')">✏ Edit</button>':'')+
       (t&&t.assigneeEmail?'<button class="btn btn-gr btn-sm" onclick="sendTaskGmail('+i+')">✉ Send Gmail</button>':'')+
+      (mn.task&&mn.task.assigneeEmail?'<button class="btn btn-gr btn-sm" onclick="sendTaskGmail('+i+')">✉ Gmail</button>':'')+
       (canEdit?'<button class="btn btn-rd btn-sm" onclick="delMinute('+i+')">🗑 Delete</button>':'')+
       '</div></div>':
       '<div class="min-body">'+
@@ -670,14 +802,31 @@ function meetingPage(){
   '<div class="page-title">'+(m.meetingName||'Untitled Meeting')+'</div>'+
   '<span class="badge '+(isI?'b-internal':'b-external')+'">'+(isI?'internal':'external')+'</span>'+
   '<span style="font-size:12px;color:#888;background:#f3f4f6;padding:3px 11px;border-radius:20px;font-weight:500">'+m.date+'</span>'+
+  (canEdit?
+    '<select class="inp" style="width:auto;font-size:12px;padding:4px 10px;border-radius:20px;font-weight:600;cursor:pointer" onchange="setMeetingStatus(this.value)">'+
+    ['scheduled','ongoing','completed','cancelled'].map(function(s){return '<option value="'+s+'"'+(m.status===s?' selected':'')+'>'+s[0].toUpperCase()+s.slice(1)+'</option>';}).join('')+
+    '</select>':
+    '<span class="badge '+(m.status==='completed'?'b-s-completed':m.status==='cancelled'?'b-s-cancelled':m.status==='ongoing'?'b-s-ongoing':'b-scheduled')+'">'+(m.status||'scheduled')+'</span>'
+  )+
   '</div>'+
   '<div class="page-sub" style="margin-top:5px">Created by '+m.createdBy+'</div>'+
   '</div>'+
-  '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
+  '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+
   '<button class="btn btn-pu btn-sm" onclick="exportPDF()">📄 Export PDF</button>'+
-  '<button class="btn btn-gr btn-sm" onclick="exportExcel()">📊 Export Excel</button>'+
+  '<button class="btn btn-gr btn-sm" onclick="exportExcel()">📊 Export CSV</button>'+
   '<button class="btn btn-gy btn-sm" onclick="window.print()">🖨 Print</button>'+
   '</div>'+
+  '</div>'+
+  // Separate MOM email action bar below heading
+  '<div style="background:linear-gradient(135deg,#eff6ff,#f0fdf4);border:1.5px solid #bfdbfe;border-radius:12px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:20px">'+
+  '<div style="display:flex;align-items:center;gap:10px">'+
+  '<div style="width:38px;height:38px;border-radius:10px;background:#2563eb;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📧</div>'+
+  '<div>'+
+  '<div style="font-size:13px;font-weight:700;color:#1e3a8a">Send MOM to All Attendees</div>'+
+  '<div style="font-size:11px;color:#3b82f6;margin-top:1px">Opens Gmail with full meeting summary + all task assignments</div>'+
+  '</div>'+
+  '</div>'+
+  '<button class="btn btn-bl" onclick="sendMOMEmail()" style="font-size:13px;padding:9px 20px;flex-shrink:0">📧 Send MOM Email</button>'+
   '</div>'+
 
   // ATTENDEES
@@ -800,6 +949,10 @@ function myTasksPage(){
   var ong=all.filter(function(t){return t.status==='ongoing';});
   var comp=all.filter(function(t){return t.status==='completed';});
 
+  // Build team/client list for filter
+  var teamNames=ST.teams.map(function(t){return t.name;});
+  var clientNames=ST.clients.map(function(c){return c.name;});
+  var allTeams=['all'].concat(teamNames).concat(clientNames);
   return '<div class="page-head"><div><div class="page-title">My Tasks</div><div class="page-sub">All tasks assigned to you</div></div></div>'+
   '<div class="task-filter-tabs">'+
   '<button class="tftab'+(filt==='all'?' on':'')+'" onclick="setMyTaskFilter(\'all\')">All ('+all.length+')</button>'+
@@ -850,11 +1003,34 @@ window.sendMyUpdateGmail = function(mid, mi){
   toast('Opening Gmail to notify managers...','ok');
 };
 
+
+window.sendTaskGmail = function(minIdx){
+  var m=ST.cur; if(!m)return;
+  var mn=m.minutes[minIdx]; if(!mn||!mn.task||!mn.task.assigneeEmail){toast('No assignee','err');return;}
+  var t=mn.task; var ref=m.meetingName||(m.type==='internal'?m.teamName:m.clientName)||'Meeting';
+  var subj='[NTF MeetTrack] Task Assigned — '+ref;
+  var body='Dear '+t.assignee+',\n\nTask: '+mn.text+'\nMeeting: '+ref+'\nDeadline: '+fmtD(t.deadline)+'\nAssigned by: '+ST.profile.name+'\n\nNTF India MeetTrack';
+  openGmail(t.assigneeEmail,subj,body);
+  toast('Opening Gmail...','ok');
+};
+window.sendMyUpdateGmail = function(mid,mi){
+  var m=ST.meetings.find(function(x){return x.id===mid;}); if(!m)return;
+  var mn=m.minutes[mi]; if(!mn||!mn.task)return;
+  var t=mn.task; var ref=m.meetingName||(m.type==='internal'?m.teamName:m.clientName)||'Meeting';
+  var mgrs=getMgrEmails(); if(!mgrs.length){toast('No managers found','err');return;}
+  var ss=document.getElementById('mts-'+mid+'-'+mi);
+  var cs=document.getElementById('mtc-'+mid+'-'+mi);
+  var subj='[NTF MeetTrack] Task Update — '+ref;
+  var body='Dear Manager,\n\n'+ST.profile.name+' update:\nMeeting: '+ref+'\nTask: '+mn.text+'\nStatus: '+(ss?ss.value:t.status)+'\nDeadline: '+fmtD(t.deadline)+(cs&&cs.value?'\nNote: "'+cs.value+'"':'')+'\n\nNTF India';
+  openGmail(mgrs.join(','),subj,body);
+  toast('Opening Gmail...','ok');
+};
 window.setMyTaskFilter=function(f){ST.myTaskFilter=f;render();};
 
 // ── DASHBOARD PAGE ────────────────────────────────
 function dashPage(){
   var ms=ST.meetings.slice();
+  if(ST.dTeam&&ST.dTeam!=='all') ms=ms.filter(function(m){return m.teamName===ST.dTeam||m.clientName===ST.dTeam;});
   if(ST.dPer==='daily'){var t=today();ms=ms.filter(function(m){return m.date===t;});}
   else if(ST.dPer==='weekly'){var w=new Date();w.setDate(w.getDate()-7);ms=ms.filter(function(m){return new Date(m.date)>=w;});}
 
@@ -870,14 +1046,26 @@ function dashPage(){
   var ft=ST.dFil==='all'?at:at.filter(function(t){return t.status===ST.dFil;});
   var ov=at.filter(function(t){return isOv(t.deadline,t.status);}).length;
 
+  // Build team/client list for filter
+  var teamNames=ST.teams.map(function(t){return t.name;});
+  var clientNames=ST.clients.map(function(c){return c.name;});
+  var allTeams=['all'].concat(teamNames).concat(clientNames);
   return '<div class="page-head"><div><div class="page-title">Dashboard</div><div class="page-sub">NTF India — Meeting & Task Tracker</div></div></div>'+
   '<div class="filter-bar">'+['daily','weekly','monthly'].map(function(p){return '<button class="filter-chip'+(ST.dPer===p?' active':'')+'" onclick="ST.dPer=\''+p+'\';render()">'+p[0].toUpperCase()+p.slice(1)+'</button>';}).join('')+'</div>'+
+  '<div class="filter-bar" style="margin-bottom:8px"><span style="font-size:11px;font-weight:700;color:#6b7280;margin-right:6px">TEAM/CLIENT:</span>'+allTeams.map(function(n){return '<button class="filter-chip'+(ST.dTeam===n?' active':'')+'" onclick="ST.dTeam=\''+n+'\';render()">'+(n==='all'?'🌐 All':n)+'</button>';}).join('')+'</div>'+
   '<div class="stats-row stats-4" style="max-width:720px">'+
   '<div class="stat-box"><div class="stat-num">'+ms.length+'</div><div class="stat-text">Meetings</div></div>'+
   '<div class="stat-box"><div class="stat-num">'+at.filter(function(t){return t.status==='pending';}).length+'</div><div class="stat-text">Pending Tasks</div></div>'+
   '<div class="stat-box"><div class="stat-num">'+at.filter(function(t){return t.status==='completed';}).length+'</div><div class="stat-text">Completed</div></div>'+
   '<div class="stat-box" style="'+(ov?'border-color:#fca5a5':'')+'"><div class="stat-num" style="'+(ov?'color:#dc2626':'')+'">'+ov+'</div><div class="stat-text">Overdue</div></div>'+
   '</div>'+
+
+  // Charts row
+  '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px">'+
+  '<div class="card"><div class="card-label" style="margin-bottom:10px">Task Status Breakdown</div><div class="chart-wrap"><canvas id="chart-status"></canvas></div></div>'+
+  '<div class="card"><div class="card-label" style="margin-bottom:10px">Meetings by Team / Client</div><div class="chart-wrap"><canvas id="chart-meetings"></canvas></div></div>'+
+  '</div>'+
+
   '<div class="filter-bar"><span style="font-size:12px;font-weight:700;color:#6b7280;margin-right:5px">FILTER TASKS:</span>'+
   ['all','pending','ongoing','completed'].map(function(f){return '<button class="filter-chip'+(ST.dFil===f?' active':'')+'" onclick="ST.dFil=\''+f+'\';render()">'+f[0].toUpperCase()+f.slice(1)+'</button>';}).join('')+'</div>'+
   '<div class="table-card"><table><thead><tr><th>#</th><th>Meeting</th><th>Minute / Task</th><th>Assigned To</th><th>Deadline</th><th>Status</th><th>Updated By</th>'+(canM()?'<th></th>':'')+'</tr></thead><tbody>'+
@@ -894,15 +1082,17 @@ function dashPage(){
   '</tr>';}).join('')+
   '</tbody></table></div>'+
   '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><div style="font-size:15px;font-weight:700;color:#0f1535">All Meetings</div></div>'+
-  '<div class="table-card"><table><thead><tr><th>Date</th><th>Name</th><th>Type</th><th>Reference</th><th>Min</th><th>Tasks</th><th>Created By</th>'+(canM()?'<th></th>':'')+'</tr></thead><tbody>'+
-  (ms.length===0?'<tr><td colspan="8" style="text-align:center;padding:2rem;color:#9ca3af">No meetings</td></tr>':'')+
+  '<div class="table-card"><table><thead><tr><th>Date</th><th>Name</th><th>Type</th><th>Reference</th><th>Status</th><th>Min</th><th>Tasks</th><th>Created By</th>'+(canM()?'<th></th>':'')+'</tr></thead><tbody>'+
+  (ms.length===0?'<tr><td colspan="9" style="text-align:center;padding:2rem;color:#9ca3af">No meetings</td></tr>':'')+
   ms.map(function(m){
     var tCnt=(m.minutes||[]).filter(function(mn){return mn.type==='assign';}).length;
+    var mStatus=m.status||'scheduled';
     return '<tr>'+
     '<td style="font-weight:600">'+m.date+'</td>'+
     '<td style="font-weight:700">'+(m.meetingName||'Untitled')+'</td>'+
     '<td><span class="badge '+(m.type==='internal'?'b-internal':'b-external')+'" style="font-size:10px">'+m.type+'</span></td>'+
     '<td>'+(m.type==='internal'?m.teamName:m.clientName)+'</td>'+
+    '<td><span class="badge '+(mStatus==='completed'?'b-s-completed':mStatus==='cancelled'?'b-s-cancelled':mStatus==='ongoing'?'b-s-ongoing':'b-scheduled')+'">'+mStatus+'</span></td>'+
     '<td>'+(m.minutes||[]).length+'</td>'+
     '<td>'+tCnt+'</td>'+
     '<td style="color:#888">'+(m.createdBy||'-')+'</td>'+
@@ -1075,7 +1265,7 @@ window.addMinute=function(){
 
   if(file){
     toast('Processing file...','inf');
-    uploadFile(file,'').then(function(url){doSave(url,file.name);}).catch(function(e){toast(e.message,'err');});
+    uploadFile(file).then(function(url){doSave(url,file.name);}).catch(function(e){toast(e.message,'err');});
   } else {
     doSave(null,null);
   }
@@ -1161,7 +1351,7 @@ window.saveMyTask=function(mid,mi){
   if(file){
     toast('Processing proof...','inf');
     var path='proofs/'+mid+'/'+Date.now()+'_'+file.name;
-    uploadFile(file,'').then(function(url){doSave(url,file.name);}).catch(function(e){toast(e.message,'err');});
+    uploadFile(file).then(function(url){doSave(url,file.name);}).catch(function(e){toast(e.message,'err');});
   } else {
     doSave(null,null);
   }
@@ -1179,31 +1369,228 @@ window.delMtg=function(id){
 // ── EXPORT PDF ──────────────────────────────────
 window.exportPDF=function(){
   if(typeof window.jspdf==='undefined'){toast('PDF library loading...','inf');return;}
-  var doc=new window.jspdf.jsPDF();
+  var doc=new window.jspdf.jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
   var m=ST.cur;
-  var y=20;
-  doc.setFontSize(18);doc.setTextColor(14,27,62);
-  doc.text('NTF MeetTrack - Minutes of Meeting',14,y);y+=10;
-  doc.setFontSize(12);doc.setTextColor(100,100,100);
-  doc.text('Meeting: '+(m.meetingName||'Untitled'),14,y);y+=7;
-  doc.text('Type: '+m.type+' | Reference: '+(m.teamName||m.clientName),14,y);y+=7;
-  doc.text('Date: '+m.date+' | Created by: '+m.createdBy,14,y);y+=7;
-  doc.text('Attendees: '+(m.attendees||[]).map(function(a){return a.name;}).join(', '),14,y);y+=12;
-  doc.setFontSize(14);doc.setTextColor(14,27,62);
-  doc.text('Minutes:',14,y);y+=8;
-  (m.minutes||[]).forEach(function(mn,i){
-    doc.setFontSize(12);doc.setTextColor(50,50,50);
-    var txt=(i+1)+'. ['+(mn.type==='assign'?'TASK':'NOTE')+'] '+mn.text;
-    var lines=doc.splitTextToSize(txt,180);
-    if(y+lines.length*7>280){doc.addPage();y=20;}
-    doc.text(lines,14,y);y+=lines.length*7;
-    if(mn.type==='assign'&&mn.task){
-      doc.setFontSize(10);doc.setTextColor(100,100,100);
-      doc.text('   Assigned to: '+(mn.task.assignee||'-')+' | Deadline: '+fmtD(mn.task.deadline)+' | Status: '+mn.task.status,14,y);y+=6;
-    }
-    y+=3;
+  var pw=210; var lm=14; var rm=196; var cw=pw-lm-14;
+
+  // ── HEADER BAND ──
+  doc.setFillColor(15,21,53); // #0f1535
+  doc.rect(0,0,pw,28,'F');
+
+  // NTF Logo block — orange square with "NTF" text
+  doc.setFillColor(232,96,10); // #e8600a
+  doc.roundedRect(lm,4,18,18,2,2,'F');
+  doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
+  doc.text('NTF',lm+9,11,{align:'center'});
+  doc.setFontSize(6);doc.setFont('helvetica','normal');
+  doc.text('INDIA',lm+9,15,{align:'center'});
+
+  // App name beside logo
+  doc.setFontSize(16);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
+  doc.text('Meet',36,13);
+  doc.setTextColor(232,96,10);
+  doc.text('Track',36+doc.getTextWidth('Meet'),13);
+
+  // Tagline
+  doc.setFontSize(7);doc.setFont('helvetica','normal');doc.setTextColor(180,180,200);
+  doc.text('Minutes of Meeting',36,18);
+
+  // Date on right
+  doc.setFontSize(8);doc.setTextColor(200,200,220);
+  doc.text('Generated: '+new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}),rm,10,{align:'right'});
+
+  // ── ORANGE DIVIDER LINE ──
+  doc.setDrawColor(232,96,10);doc.setLineWidth(0.8);
+  doc.line(0,28,pw,28);
+
+  var y=36;
+
+  // ── MEETING INFO BLOCK ──
+  doc.setFillColor(245,246,250);
+  doc.roundedRect(lm,y,cw,36,3,3,'F');
+  doc.setDrawColor(220,220,230);doc.setLineWidth(0.3);
+  doc.roundedRect(lm,y,cw,36,3,3,'S');
+
+  // Left accent bar
+  doc.setFillColor(232,96,10);
+  doc.rect(lm,y,2,36,'F');
+
+  var iy=y+7;
+  var col1=lm+6; var col2=lm+cw/2+4;
+
+  doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(15,21,53);
+  doc.text('MEETING NAME',col1,iy);
+  doc.setFont('helvetica','normal');doc.setTextColor(50,50,80);
+  doc.text(m.meetingName||'Untitled',col1,iy+5);
+
+  doc.setFont('helvetica','bold');doc.setTextColor(15,21,53);
+  doc.text('TYPE',col2,iy);
+  doc.setFont('helvetica','normal');doc.setTextColor(50,50,80);
+  doc.text((m.type||'internal').toUpperCase()+' — '+(m.teamName||m.clientName||'-'),col2,iy+5);
+
+  iy+=14;
+  doc.setFont('helvetica','bold');doc.setTextColor(15,21,53);
+  doc.text('DATE',col1,iy);
+  doc.setFont('helvetica','normal');doc.setTextColor(50,50,80);
+  doc.text(fmtD(m.date),col1,iy+5);
+
+  doc.setFont('helvetica','bold');doc.setTextColor(15,21,53);
+  doc.text('CREATED BY',col2,iy);
+  doc.setFont('helvetica','normal');doc.setTextColor(50,50,80);
+  doc.text(m.createdBy||'-',col2,iy+5);
+
+  y+=42;
+
+  // ── ATTENDEES ──
+  doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(15,21,53);
+  doc.text('ATTENDEES',lm,y);
+  doc.setFillColor(232,96,10);doc.rect(lm,y+1,cw,0.5,'F');
+  y+=5;
+  var attStr=(m.attendees||[]).map(function(a){return a.name;}).join('  ·  ');
+  var attLines=doc.splitTextToSize(attStr||'—',cw);
+  doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(60,60,80);
+  doc.text(attLines,lm,y);
+  y+=attLines.length*5+8;
+
+  // ── MINUTES TABLE ──
+  doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(15,21,53);
+  doc.text('MINUTES OF MEETING',lm,y);
+  doc.setFillColor(232,96,10);doc.rect(lm,y+1,cw,0.5,'F');
+  y+=6;
+
+  // Table header
+  var cols={num:6,type:18,minute:80,assignee:32,deadline:26,status:20};
+  var cx={num:lm, type:lm+cols.num, minute:lm+cols.num+cols.type, assignee:lm+cols.num+cols.type+cols.minute, deadline:lm+cols.num+cols.type+cols.minute+cols.assignee, status:lm+cols.num+cols.type+cols.minute+cols.assignee+cols.deadline};
+
+  function drawTableHeader(yy){
+    doc.setFillColor(15,21,53);
+    doc.rect(lm,yy,cw,7,'F');
+    doc.setFont('helvetica','bold');doc.setFontSize(7);doc.setTextColor(255,255,255);
+    doc.text('#',cx.num+1,yy+4.5);
+    doc.text('TYPE',cx.type+1,yy+4.5);
+    doc.text('MINUTE / TASK DESCRIPTION',cx.minute+1,yy+4.5);
+    doc.text('ASSIGNED TO',cx.assignee+1,yy+4.5);
+    doc.text('DEADLINE',cx.deadline+1,yy+4.5);
+    doc.text('STATUS',cx.status+1,yy+4.5);
+    return yy+7;
+  }
+
+  y=drawTableHeader(y);
+
+  var mins=m.minutes||[];
+  if(mins.length===0){
+    doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(150,150,150);
+    doc.text('No minutes recorded.',lm+2,y+6);
+    y+=12;
+  } else {
+    mins.forEach(function(mn,i){
+      var isTask=mn.type==='assign';
+      var t=mn.task||null;
+      var descLines=doc.splitTextToSize(mn.text||'',cols.minute-4);
+      var rowH=Math.max(8,descLines.length*4.5+4);
+
+      // Page break check
+      if(y+rowH>280){
+        doc.addPage();
+        // Repeat mini header on new page
+        doc.setFillColor(15,21,53);doc.rect(0,0,pw,10,'F');
+        doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
+        doc.text('NTF MeetTrack — '+(m.meetingName||'Meeting')+' (continued)',lm,6.5);
+        y=16;
+        y=drawTableHeader(y);
+      }
+
+      // Row bg alternating
+      if(i%2===0){doc.setFillColor(249,250,252);}else{doc.setFillColor(255,255,255);}
+      doc.rect(lm,y,cw,rowH,'F');
+
+      // Row border
+      doc.setDrawColor(230,230,235);doc.setLineWidth(0.2);
+      doc.rect(lm,y,cw,rowH,'S');
+
+      // Type badge color
+      if(isTask){doc.setFillColor(255,237,213);doc.setTextColor(194,65,12);}
+      else{doc.setFillColor(240,253,244);doc.setTextColor(22,101,52);}
+      doc.roundedRect(cx.type+1,y+1.5,14,4,1,1,'F');
+      doc.setFont('helvetica','bold');doc.setFontSize(6);
+      doc.text(isTask?'TASK':'NOTE',cx.type+8,y+4.5,{align:'center'});
+
+      // Row number
+      doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(150,150,160);
+      doc.text(String(i+1),cx.num+1,y+rowH/2+1.5);
+
+      // Minute text
+      doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(30,30,50);
+      doc.text(descLines,cx.minute+1,y+4.5);
+
+      // Task columns
+      if(isTask&&t){
+        doc.setFontSize(8);doc.setTextColor(30,30,50);
+        doc.text(t.assignee||'—',cx.assignee+1,y+rowH/2+1.5);
+        doc.text(fmtD(t.deadline),cx.deadline+1,y+rowH/2+1.5);
+
+        // Status badge
+        var sc,sb;
+        if(t.status==='completed'){sc=[22,101,52];sb=[240,253,244];}
+        else if(t.status==='ongoing'){sc=[30,64,175];sb=[239,246,255];}
+        else{sc=[133,77,14];sb=[254,252,232];}
+        doc.setFillColor(sb[0],sb[1],sb[2]);
+        doc.roundedRect(cx.status+1,y+rowH/2-2,17,5,1,1,'F');
+        doc.setFont('helvetica','bold');doc.setFontSize(6.5);doc.setTextColor(sc[0],sc[1],sc[2]);
+        doc.text((t.status||'pending').toUpperCase(),cx.status+9.5,y+rowH/2+1.5,{align:'center'});
+
+        // Comment if any
+        if(t.lastComment){
+          doc.setFont('helvetica','italic');doc.setFontSize(6.5);doc.setTextColor(130,130,150);
+          var cLines=doc.splitTextToSize('💬 '+t.lastComment,cols.minute-4);
+          doc.text(cLines,cx.minute+1,y+descLines.length*4.5+5.5);
+        }
+      } else {
+        doc.setFontSize(8);doc.setTextColor(180,180,190);
+        doc.text('—',cx.assignee+1,y+rowH/2+1.5);
+        doc.text('—',cx.deadline+1,y+rowH/2+1.5);
+        doc.text('—',cx.status+1,y+rowH/2+1.5);
+      }
+
+      y+=rowH;
+    });
+  }
+
+  y+=8;
+
+  // ── SUMMARY BOX ──
+  var tasks=mins.filter(function(mn){return mn.type==='assign'&&mn.task;});
+  var done=tasks.filter(function(mn){return mn.task.status==='completed';}).length;
+  var pend=tasks.filter(function(mn){return mn.task.status==='pending';}).length;
+  var ong=tasks.filter(function(mn){return mn.task.status==='ongoing';}).length;
+
+  if(y+22>285){doc.addPage();y=20;}
+  doc.setFillColor(245,246,250);doc.roundedRect(lm,y,cw,20,2,2,'F');
+  doc.setDrawColor(220,220,230);doc.setLineWidth(0.3);doc.roundedRect(lm,y,cw,20,2,2,'S');
+  doc.setFont('helvetica','bold');doc.setFontSize(7.5);doc.setTextColor(15,21,53);
+  doc.text('SUMMARY',lm+4,y+6);
+  var sx=lm+30;
+  [['Total Minutes',mins.length],['Total Tasks',tasks.length],['Completed',done],['Ongoing',ong],['Pending',pend]].forEach(function(pair){
+    doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(100,100,120);
+    doc.text(pair[0],sx,y+6);
+    doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(15,21,53);
+    doc.text(String(pair[1]),sx,y+14);
+    sx+=30;
   });
-  doc.save((m.meetingName||'meeting')+'_minutes.pdf');
+  y+=26;
+
+  // ── FOOTER ──
+  var totalPages=doc.internal.getNumberOfPages();
+  for(var pg=1;pg<=totalPages;pg++){
+    doc.setPage(pg);
+    doc.setFillColor(15,21,53);doc.rect(0,287,pw,10,'F');
+    doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(180,180,200);
+    doc.text('NTF India — MeetTrack | Confidential',lm,293);
+    doc.text('Page '+pg+' of '+totalPages,rm,293,{align:'right'});
+    doc.setDrawColor(232,96,10);doc.setLineWidth(0.5);doc.line(0,287,pw,287);
+  }
+
+  doc.save((m.meetingName||'meeting').replace(/\s+/g,'_')+'_MOM.pdf');
   toast('PDF downloaded!','ok');
 };
 
@@ -1228,6 +1615,688 @@ window.exportExcel=function(){
   var a=document.createElement('a');a.href=url;a.download=(m.meetingName||'meeting')+'_minutes.csv';a.click();
   URL.revokeObjectURL(url);
   toast('Excel/CSV downloaded!','ok');
+};
+
+// ── MEETING STATUS ───────────────────────────────
+window.setMeetingStatus=function(status){
+  if(!ST.cur) return;
+  ST.cur.status=status;
+  saveMeeting(ST.cur).then(function(){toast('Status updated to "'+status+'"','ok');render();});
+};
+
+// ── DEADLINE POPUP ───────────────────────────────
+function checkDeadlines(){
+  var tomorrow=new Date(); tomorrow.setDate(tomorrow.getDate()+1);
+  var tStr=tomorrow.toISOString().split('T')[0];
+  var today2=new Date().toISOString().split('T')[0];
+  var myEmail=ST.profile&&ST.profile.email;
+  var alerts=[];
+  ST.meetings.forEach(function(m){
+    (m.minutes||[]).forEach(function(mn){
+      if(mn.type==='assign'&&mn.task&&mn.task.status!=='completed'){
+        // ONLY show tasks assigned to the logged-in user — regardless of role
+        if(mn.task.assigneeEmail!==myEmail) return;
+        var d=mn.task.deadline;
+        if(!d) return;
+        var isToday=d===today2;
+        var isTmrw=d===tStr;
+        var isPast=d<today2;
+        if(isToday||isTmrw||isPast){
+          alerts.push({
+            meetingName:m.meetingName||'Untitled',
+            text:mn.text,
+            assignee:mn.task.assignee,
+            assigneeEmail:mn.task.assigneeEmail,
+            deadline:d,
+            status:mn.task.status,
+            urgency:isPast?'overdue':isToday?'today':'tomorrow'
+          });
+        }
+      }
+    });
+  });
+  if(!alerts.length) return;
+  showDeadlinePopup(alerts);
+}
+
+function showDeadlinePopup(alerts){
+  var existing=document.getElementById('dl-popup-bg');
+  if(existing) existing.remove();
+  var urgColors={overdue:'#991b1b',today:'#c2410c',tomorrow:'#854d0e'};
+  var urgBg={overdue:'#fff5f5',today:'#fff7ed',tomorrow:'#fefce8'};
+  var urgLabel={overdue:'⚠ Overdue',today:'⏰ Due Today',tomorrow:'📅 Due Tomorrow'};
+  var rows=alerts.map(function(a){
+    return '<div class="dl-row">'+
+    '<div style="flex:1">'+
+    '<div style="font-size:13px;font-weight:600;color:#0f1535;margin-bottom:2px">'+a.text+'</div>'+
+    '<div style="font-size:11px;color:#888">'+a.meetingName+' &nbsp;·&nbsp; Assigned to <strong>'+a.assignee+'</strong></div>'+
+    '</div>'+
+    '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">'+
+    '<span style="font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:'+urgBg[a.urgency]+';color:'+urgColors[a.urgency]+'">'+urgLabel[a.urgency]+'</span>'+
+    '<span style="font-size:10px;color:#aaa">'+fmtD(a.deadline)+'</span>'+
+    '</div>'+
+    '</div>';
+  }).join('');
+  var mgrs=getMgrEmails();
+  var d=document.createElement('div');
+  d.id='dl-popup-bg';
+  d.className='dl-popup-bg';
+  d.innerHTML='<div class="dl-popup">'+
+  '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">'+
+  '<div style="font-size:28px">⚠️</div>'+
+  '<div><div style="font-size:17px;font-weight:700;color:#0f1535">Your Deadline Alert</div>'+
+  '<div style="font-size:12px;color:#888">'+alerts.length+' of your task(s) need attention</div></div>'+
+  '<button onclick="document.getElementById(\'dl-popup-bg\').remove()" style="margin-left:auto;background:none;border:none;font-size:22px;cursor:pointer;color:#9ca3af;line-height:1">×</button>'+
+  '</div>'+
+  '<div>'+rows+'</div>'+
+  (mgrs.length?
+  '<div style="margin-top:16px;padding-top:14px;border-top:1px solid #f3f4f6;display:flex;gap:8px;flex-wrap:wrap">'+
+  '<button class="btn btn-or btn-sm" onclick="sendBulkReminders()">✉ Send Reminder Emails to Managers</button>'+
+  '<button class="btn btn-gy btn-sm" onclick="document.getElementById(\'dl-popup-bg\').remove()">Dismiss</button>'+
+  '</div>':
+  '<div style="margin-top:14px;text-align:right"><button class="btn btn-gy btn-sm" onclick="document.getElementById(\'dl-popup-bg\').remove()">Dismiss</button></div>')+
+  '</div>';
+  document.body.appendChild(d);
+  window._dlAlerts=alerts;
+}
+
+window.sendBulkReminders=function(){
+  var mgrs=getMgrEmails();
+  if(!mgrs.length){toast('No managers found','err');return;}
+  var alerts=window._dlAlerts||[];
+  var lines=alerts.map(function(a,i){
+    return (i+1)+'. '+a.text+'\n   Assigned to: '+a.assignee+' | Deadline: '+fmtD(a.deadline)+' | Status: '+a.status;
+  }).join('\n\n');
+  var subj='[NTF MeetTrack] ⚠ Deadline Alert — '+alerts.length+' Task(s) Need Attention';
+  var body='Dear Manager,\n\nThe following tasks have approaching or overdue deadlines:\n\n'+lines+'\n\nPlease follow up with the concerned employees.\n\nNTF India MeetTrack';
+  openGmail(mgrs.join(','),subj,body);
+  toast('Opening Gmail for bulk reminder...','ok');
+  document.getElementById('dl-popup-bg').remove();
+};
+
+// ── GLOBAL SEARCH ────────────────────────────────
+window.doSearch=function(q){
+  q=(q||'').trim().toLowerCase();
+  var overlay=document.getElementById('search-overlay');
+  if(!overlay) return;
+  if(!q){overlay.style.display='none';return;}
+  overlay.style.display='block';
+  var results=[];
+  ST.meetings.forEach(function(m){
+    var inName=(m.meetingName||'').toLowerCase().indexOf(q)!==-1;
+    var inDate=(m.date||'').indexOf(q)!==-1;
+    var inCreator=(m.createdBy||'').toLowerCase().indexOf(q)!==-1;
+    var inRef=((m.teamName||m.clientName||'').toLowerCase()).indexOf(q)!==-1;
+    var inAtt=(m.attendees||[]).some(function(a){return a.name.toLowerCase().indexOf(q)!==-1||a.email.toLowerCase().indexOf(q)!==-1;});
+    var inMin=(m.minutes||[]).some(function(mn){return (mn.text||'').toLowerCase().indexOf(q)!==-1;});
+    if(inName||inDate||inCreator||inRef||inAtt||inMin){
+      var reason=inMin?'Found in minutes':inAtt?'Found in attendees':inRef?'Team / Client match':'';
+      results.push({m:m,reason:reason});
+    }
+  });
+  var box=document.getElementById('search-box');
+  if(!box) return;
+  if(results.length===0){
+    box.innerHTML='<div style="text-align:center;padding:2rem;color:#9ca3af;font-size:13px">No meetings found for "'+q+'"</div>';
+    return;
+  }
+  box.innerHTML=results.slice(0,12).map(function(r){
+    var m=r.m; var mStatus=m.status||'scheduled';
+    var stBg={completed:'#f0fdf4',cancelled:'#fef2f2',ongoing:'#eff6ff',scheduled:'#f0f9ff'};
+    var stCl={completed:'#166534',cancelled:'#991b1b',ongoing:'#1e40af',scheduled:'#075985'};
+    return '<div class="search-res-item" onclick="closeSearch();openMeeting(\''+m.id+'\')">'+
+    '<div style="font-size:22px">📋</div>'+
+    '<div style="flex:1">'+
+    '<div style="font-size:13px;font-weight:700;color:#0f1535">'+(m.meetingName||'Untitled')+'</div>'+
+    '<div style="font-size:11px;color:#888;margin-top:2px">'+m.date+' &nbsp;·&nbsp; '+(m.type==='internal'?m.teamName:m.clientName)+' &nbsp;·&nbsp; By '+m.createdBy+'</div>'+
+    (r.reason?'<div style="font-size:10px;color:#e8600a;margin-top:2px">'+r.reason+'</div>':'')+
+    '</div>'+
+    '<span style="font-size:10px;font-weight:700;padding:2px 9px;border-radius:20px;flex-shrink:0;background:'+stBg[mStatus]+';color:'+stCl[mStatus]+'">'+mStatus+'</span>'+
+    '</div>';
+  }).join('');
+};
+window.showSearchOverlay=function(){
+  var overlay=document.getElementById('search-overlay');
+  var val=(document.getElementById('sb-search-inp')||{}).value||'';
+  if(overlay&&val.trim()) overlay.style.display='block';
+};
+window.closeSearch=function(){
+  var overlay=document.getElementById('search-overlay');
+  if(overlay) overlay.style.display='none';
+  var inp=document.getElementById('sb-search-inp');
+  if(inp) inp.value='';
+};
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape') window.closeSearch();
+});
+
+// ── DASHBOARD CHARTS ─────────────────────────────
+var _charts={};
+function renderCharts(at,ms){
+  if(typeof Chart==='undefined') return;
+  Object.keys(_charts).forEach(function(k){try{_charts[k].destroy();}catch(e){}});
+  _charts={};
+  var c1=document.getElementById('chart-status');
+  if(c1){
+    var pending=at.filter(function(t){return t.status==='pending';}).length;
+    var ongoing=at.filter(function(t){return t.status==='ongoing';}).length;
+    var completed=at.filter(function(t){return t.status==='completed';}).length;
+    _charts.status=new Chart(c1,{
+      type:'doughnut',
+      data:{labels:['Pending','Ongoing','Completed'],datasets:[{data:[pending,ongoing,completed],backgroundColor:['#fde68a','#bfdbfe','#bbf7d0'],borderColor:['#f59e0b','#3b82f6','#22c55e'],borderWidth:2}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:10}}}}
+    });
+  }
+  var c2=document.getElementById('chart-meetings');
+  if(c2){
+    var refMap={};
+    ms.forEach(function(m){var ref=(m.type==='internal'?m.teamName:m.clientName)||'Unknown';refMap[ref]=(refMap[ref]||0)+1;});
+    var labels=Object.keys(refMap).slice(0,8);
+    var vals=labels.map(function(l){return refMap[l];});
+    _charts.meetings=new Chart(c2,{
+      type:'bar',
+      data:{labels:labels,datasets:[{label:'Meetings',data:vals,backgroundColor:'#c7d2fe',borderColor:'#6366f1',borderWidth:2,borderRadius:6}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{stepSize:1,font:{size:11}},grid:{color:'#f3f4f6'}},x:{ticks:{font:{size:10}},grid:{display:false}}}}
+    });
+  }
+}
+
+// ── SEND MOM EMAIL TO ATTENDEES ──────────────────
+window.sendMOMEmail=function(){
+  var m=ST.cur;
+  if(!m){toast('No meeting open','err');return;}
+  var atts=m.attendees||[];
+  if(!atts.length){toast('No attendees on this meeting','err');return;}
+  var toList=atts.map(function(a){return a.email;}).filter(Boolean).join(',');
+  var tasks=(m.minutes||[]).filter(function(mn){return mn.type==='assign'&&mn.task;});
+  var taskLines=tasks.map(function(mn,i){
+    var t=mn.task;
+    return (i+1)+'. '+mn.text+'\n   Assigned to: '+(t.assignee||'-')+' | Deadline: '+fmtD(t.deadline)+' | Status: '+(t.status||'pending');
+  }).join('\n\n');
+  var noteLines=(m.minutes||[]).filter(function(mn){return mn.type==='note';}).map(function(mn,i){return (i+1)+'. '+mn.text;}).join('\n');
+  var subj='[NTF MeetTrack] Minutes of Meeting — '+(m.meetingName||'Meeting')+' ('+m.date+')';
+  var body='Dear Team,\n\nPlease find below the Minutes of Meeting for your reference.\n\n'+
+  '══════════════════════════════════\n'+
+  'MEETING DETAILS\n'+
+  '══════════════════════════════════\n'+
+  'Meeting  : '+(m.meetingName||'Untitled')+'\n'+
+  'Type     : '+(m.type||'-')+' | Reference: '+(m.teamName||m.clientName||'-')+'\n'+
+  'Date     : '+m.date+'\n'+
+  'Created  : '+m.createdBy+'\n'+
+  'Status   : '+(m.status||'scheduled').toUpperCase()+'\n'+
+  'Attendees: '+atts.map(function(a){return a.name;}).join(', ')+'\n\n'+
+  (noteLines?'══════════════════════════════════\nNOTES\n══════════════════════════════════\n'+noteLines+'\n\n':'')+
+  (taskLines?'══════════════════════════════════\nTASK ASSIGNMENTS\n══════════════════════════════════\n'+taskLines+'\n\n':'')+
+  'Please complete your assigned tasks before the deadline.\n\nRegards,\nNTF India — MeetTrack System';
+  openGmail(toList,subj,body);
+  toast('Opening Gmail with MOM for all attendees...','ok');
+};
+
+// ── EMPLOYEE PERFORMANCE PAGE ─────────────────────
+window.setPerfPer=function(per){
+  ST.perfPer=per; ST.perfSelectedEmp='';
+  document.getElementById('main').innerHTML=performancePage();
+};
+function buildEmpMap(period){
+  period=period||ST.perfPer||'overall';
+  var now=new Date();
+  var filtered=ST.meetings.filter(function(m){
+    if(period==='overall')return true;
+    var d=new Date(m.date);
+    if(period==='daily')return m.date===today();
+    if(period==='weekly'){var w=new Date(now);w.setDate(w.getDate()-7);return d>=w;}
+    if(period==='monthly'){var mo=new Date(now.getFullYear(),now.getMonth(),1);return d>=mo;}
+    return true;
+  });
+  var empMap={};
+  ST.allUsers.filter(function(u){return u.role==='employee';}).forEach(function(u){
+    empMap[u.email]={name:u.name,email:u.email,total:0,completed:0,pending:0,ongoing:0,overdue:0};
+  });
+  ST.meetings.forEach(function(m){
+    (m.minutes||[]).forEach(function(mn){
+      if(mn.type!=='assign'||!mn.task) return;
+      var t=mn.task; var email=t.assigneeEmail||'';
+      if(!empMap[email]) empMap[email]={name:t.assignee||email,email:email,total:0,completed:0,pending:0,ongoing:0,overdue:0};
+      var e=empMap[email];
+      e.total++;
+      if(t.status==='completed') e.completed++;
+      else if(t.status==='ongoing') e.ongoing++;
+      else e.pending++;
+      if(isOv(t.deadline,t.status)) e.overdue++;
+    });
+  });
+  return empMap;
+}
+
+function perfEmpCard(e,selEmail){
+  var rate=e.total>0?Math.round(e.completed/e.total*100):0;
+  var col=rate>=80?'#16a34a':rate>=50?'#d97706':'#dc2626';
+  var isSel=e.email===selEmail;
+  var html='<div class="perf-emp-card'+(isSel?' selected':'')+'" onclick="selectPerfEmp(\''+e.email+'\')">';
+  html+='<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">';
+  html+='<div style="width:40px;height:40px;border-radius:10px;background:'+(isSel?'#e8600a':'#0f1535')+';color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0">'+ini(e.name)+'</div>';
+  html+='<div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700;color:#0f1535;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+e.name+'</div>';
+  html+='<div style="font-size:11px;color:#9ca3af;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+e.email+'</div></div>';
+  html+='<span style="font-size:13px;font-weight:700;color:'+col+';flex-shrink:0">'+rate+'%</span></div>';
+  html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
+  html+='<div class="perf-rate-bar"><div class="perf-rate-fill" style="width:'+rate+'%;background:'+col+'"></div></div></div>';
+  html+='<div style="display:flex;gap:8px">';
+  html+='<span class="badge b-completed" style="font-size:10px">✓ '+e.completed+'</span>';
+  html+='<span class="badge b-ongoing" style="font-size:10px">⟳ '+e.ongoing+'</span>';
+  html+='<span class="badge b-pending" style="font-size:10px">⏳ '+e.pending+'</span>';
+  if(e.overdue>0) html+='<span class="badge b-s-cancelled" style="font-size:10px">⚠ '+e.overdue+'</span>';
+  html+='</div></div>';
+  return html;
+}
+
+function perfDetailPanel(selEmail,empMap){
+  if(!selEmail) return '<div class="emp-detail-panel" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;color:#9ca3af"><div style="font-size:48px;margin-bottom:14px">👆</div><div style="font-size:15px;font-weight:600;color:#0f1535">Select an employee</div><div style="font-size:13px;margin-top:6px">Click any employee card on the left to view their meetings and tasks</div></div>';
+  var e=empMap[selEmail];
+  if(!e) return '';
+  var rate=e.total>0?Math.round(e.completed/e.total*100):0;
+  var col=rate>=80?'#16a34a':rate>=50?'#d97706':'#dc2626';
+
+  var empMeetings=ST.meetings.filter(function(m){
+    return (m.attendees||[]).some(function(a){return a.email===selEmail;});
+  });
+  var empTasks=[];
+  ST.meetings.forEach(function(m){
+    (m.minutes||[]).forEach(function(mn){
+      if(mn.type==='assign'&&mn.task&&mn.task.assigneeEmail===selEmail){
+        empTasks.push({text:mn.text,status:mn.task.status,deadline:mn.task.deadline,meetingName:m.meetingName||'Untitled',mid:m.id});
+      }
+    });
+  });
+
+  var html='<div class="emp-detail-panel">';
+  // Header
+  html+='<div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid #f3f4f6">';
+  html+='<div style="width:52px;height:52px;border-radius:14px;background:#e8600a;color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;flex-shrink:0">'+ini(e.name)+'</div>';
+  html+='<div style="flex:1"><div style="font-size:18px;font-weight:700;color:#0f1535">'+e.name+'</div><div style="font-size:12px;color:#888;margin-top:2px">'+e.email+'</div></div>';
+  html+='<button class="btn btn-pu btn-sm" style="margin-right:6px" onclick="openEmpProfile(\''+selEmail+'\')">👤 Profile</button>';
+  html+='<button class="btn btn-bl btn-sm" onclick="sendEmpReminder(\''+selEmail+'\',\''+e.name+'\')">✉ Remind</button>';
+  html+='<button class="btn btn-gy btn-xs" onclick="ST.perfSelectedEmp=\'\';document.getElementById(\'main\').innerHTML=performancePage()" style="margin-left:4px;font-size:16px;padding:4px 9px">×</button>';
+  html+='</div>';
+  // Stats
+  html+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:18px">';
+  html+='<div class="stat-box" style="padding:10px"><div style="font-size:20px;font-weight:700;color:'+col+'">'+rate+'%</div><div class="stat-text">Completion</div></div>';
+  html+='<div class="stat-box" style="padding:10px"><div style="font-size:20px;font-weight:700;color:#0f1535">'+e.total+'</div><div class="stat-text">Total Tasks</div></div>';
+  html+='<div class="stat-box" style="padding:10px"><div style="font-size:20px;font-weight:700;color:#16a34a">'+e.completed+'</div><div class="stat-text">Completed</div></div>';
+  html+='<div class="stat-box" style="'+(e.overdue?'border-color:#fca5a5':'')+';padding:10px"><div style="font-size:20px;font-weight:700;color:'+(e.overdue?'#dc2626':'#0f1535')+'">'+e.overdue+'</div><div class="stat-text">Overdue</div></div>';
+  html+='</div>';
+  // Meetings
+  html+='<div style="font-size:11px;font-weight:700;color:#0f1535;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid #e5e7eb">📋 Meetings Attended ('+empMeetings.length+')</div>';
+  if(empMeetings.length===0){
+    html+='<div style="color:#aaa;font-size:13px;padding:10px 0;margin-bottom:14px">No meetings found</div>';
+  } else {
+    html+='<div style="max-height:190px;overflow-y:auto;margin-bottom:16px">';
+    empMeetings.forEach(function(m){
+      var myT=(m.minutes||[]).filter(function(mn){return mn.type==='assign'&&mn.task&&mn.task.assigneeEmail===selEmail;});
+      var myDone=myT.filter(function(mn){return mn.task.status==='completed';}).length;
+      var mStatus=m.status||'scheduled';
+      html+='<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:#f9fafb;border-radius:8px;margin-bottom:6px;cursor:pointer;border:1px solid #f3f4f6" onclick="openMeeting(\''+m.id+'\')">';
+      html+='<div style="font-size:18px">📋</div>';
+      html+='<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:#0f1535;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(m.meetingName||'Untitled')+'</div>';
+      html+='<div style="font-size:11px;color:#888">'+m.date+' · '+(m.type==='internal'?m.teamName:m.clientName)+'</div></div>';
+      html+='<div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">';
+      html+='<span class="badge '+(mStatus==='completed'?'b-s-completed':mStatus==='cancelled'?'b-s-cancelled':mStatus==='ongoing'?'b-s-ongoing':'b-scheduled')+'" style="font-size:10px">'+mStatus+'</span>';
+      if(myT.length) html+='<span style="font-size:10px;color:#888">'+myDone+'/'+myT.length+' done</span>';
+      html+='</div></div>';
+    });
+    html+='</div>';
+  }
+  // Tasks
+  html+='<div style="font-size:11px;font-weight:700;color:#0f1535;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid #e5e7eb">📌 All Tasks ('+empTasks.length+')</div>';
+  if(empTasks.length===0){
+    html+='<div style="color:#aaa;font-size:13px;padding:10px 0">No tasks assigned</div>';
+  } else {
+    html+='<div style="max-height:220px;overflow-y:auto">';
+    empTasks.forEach(function(t){
+      var ov2=isOv(t.deadline,t.status);
+      var bc=ov2?'#fca5a5':t.status==='completed'?'#bbf7d0':'#e5e7eb';
+      var bg=ov2?'#fff9f9':t.status==='completed'?'#f0fdf4':'#f9fafb';
+      html+='<div style="padding:10px 12px;border-radius:8px;margin-bottom:6px;border:1px solid '+bc+';background:'+bg+'">';
+      html+='<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">';
+      html+='<div style="font-size:12px;font-weight:600;color:#111;flex:1">'+t.text+'</div>';
+      html+='<span class="badge '+(t.status==='completed'?'b-completed':t.status==='ongoing'?'b-ongoing':'b-pending')+'" style="font-size:10px;flex-shrink:0">'+t.status+'</span>';
+      html+='</div>';
+      html+='<div style="font-size:11px;color:#888;margin-top:4px">'+t.meetingName+' · Deadline: <span style="color:'+(ov2?'#dc2626':'#555')+';font-weight:'+(ov2?700:400)+'">'+fmtD(t.deadline)+(ov2?' ⚠':'')+'</span></div>';
+      html+='</div>';
+    });
+    html+='</div>';
+  }
+  html+='</div>';
+  return html;
+}
+
+function performancePage(){
+  if(!canM()) return '<div style="padding:3rem;text-align:center;color:#aaa;background:#fff;border-radius:14px;border:1px solid #e5e7eb"><div style="font-size:40px;margin-bottom:12px">🔒</div><div style="font-size:16px;font-weight:700;color:#0f1535">Access Restricted</div><div style="font-size:13px;color:#888;margin-top:6px">Only Directors and Boss can view employee performance</div></div>';
+  var empMap=buildEmpMap();
+  var emps=Object.values(empMap);
+  var q=(ST.perfSearch||'').toLowerCase();
+  var filtered=q?emps.filter(function(e){return e.name.toLowerCase().indexOf(q)!==-1||e.email.toLowerCase().indexOf(q)!==-1;}):emps;
+  filtered.sort(function(a,b){return (b.total||0)-(a.total||0);});
+  var totalTasks=emps.reduce(function(s,e){return s+e.total;},0);
+  var totalDone=emps.reduce(function(s,e){return s+e.completed;},0);
+  var totalOv=emps.reduce(function(s,e){return s+e.overdue;},0);
+  var selEmail=ST.perfSelectedEmp||'';
+  var empCards=filtered.map(function(e){return perfEmpCard(e,selEmail);}).join('');
+  var detailPanel=perfDetailPanel(selEmail,empMap);
+  var html='';
+  html+='<div class="page-head">';
+  html+='<div><div class="page-title">Employee Performance</div>';
+  html+='<div class="page-sub">Task completion &amp; accountability report — Director / Boss only</div></div>';
+  html+='<div style="display:flex;gap:8px">';
+  html+='<button class="btn btn-rd btn-sm" onclick="exportMonthlyPerfPDF()">📄 Monthly PDF</button>';
+  html+='<button class="btn btn-nv btn-sm" onclick="exportPerfPDF()">Export PDF</button>';
+  html+='<button class="btn btn-gr btn-sm" onclick="exportPerfCSV()">Export CSV</button>';
+  html+='</div></div>';
+  var pTabs=[{k:'daily',l:'📅 Today'},{k:'weekly',l:'📆 This Week'},{k:'monthly',l:'🗓 This Month'},{k:'overall',l:'🌐 Overall'}];
+  html+='<div style="display:flex;gap:8px;margin-bottom:18px;background:#fff;padding:5px;border-radius:12px;border:1px solid #e5e7eb;width:fit-content">';
+  pTabs.forEach(function(pt){
+    var isA=(ST.perfPer||'overall')===pt.k;
+    html+='<button data-period="'+pt.k+'" class="perf-period-btn" style="padding:8px 16px;border-radius:8px;border:none;cursor:pointer;font-size:12px;font-weight:700;font-family:inherit;background:'+(isA?'#0f1535':'transparent')+';color:'+(isA?'#fff':'#6b7280')+'">'+ pt.l+'</button>';
+  });
+  html+='</div>';
+  html+='<div style="background:#0f1535;border-radius:16px;padding:22px 28px;margin-bottom:22px;display:grid;grid-template-columns:repeat(4,1fr);gap:0">';
+  html+='<div style="border-right:1px solid rgba(255,255,255,.12);padding-right:20px"><div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Employees</div><div style="font-size:34px;font-weight:700;color:#fff">'+emps.length+'</div></div>';
+  html+='<div style="border-right:1px solid rgba(255,255,255,.12);padding:0 20px"><div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Total Tasks</div><div style="font-size:34px;font-weight:700;color:#fff">'+totalTasks+'</div></div>';
+  html+='<div style="border-right:1px solid rgba(255,255,255,.12);padding:0 20px"><div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Completed</div><div style="font-size:34px;font-weight:700;color:#4ade80">'+totalDone+'</div></div>';
+  html+='<div style="padding-left:20px"><div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Overdue</div><div style="font-size:34px;font-weight:700;color:'+(totalOv?'#f87171':'#fff')+'">'+totalOv+'</div></div>';
+  html+='</div>';
+  html+='<div style="display:grid;grid-template-columns:340px 1fr;gap:16px;align-items:start">';
+  html+='<div>';
+  html+='<div style="position:relative;margin-bottom:14px">';
+  html+='<span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:14px;pointer-events:none">&#128269;</span>';
+  html+='<input class="perf-search-bar" id="perf-search" placeholder="Search by name or email..." value="'+(ST.perfSearch||'')+'" oninput="ST.perfSearch=this.value;ST.perfSelectedEmp=\'\';document.getElementById(\'main\').innerHTML=performancePage()">';
+  html+='</div>';
+  html+=(filtered.length===0?'<div style="text-align:center;padding:2rem;color:#9ca3af;background:#fff;border-radius:12px;border:1px solid #e5e7eb">No employees found</div>':empCards);
+  html+='</div>';
+  html+='<div>'+detailPanel+'</div>';
+  html+='</div>';
+  return html;
+}
+document.addEventListener('click',function(e){
+  if(e.target&&e.target.classList.contains('perf-period-btn')){
+    var per=e.target.getAttribute('data-period');
+    if(per){ST.perfPer=per;ST.perfSelectedEmp='';document.getElementById('main').innerHTML=performancePage();}
+  }
+});
+window.selectPerfEmp=function(email){
+  ST.perfSelectedEmp=(ST.perfSelectedEmp===email?'':email);
+  document.getElementById('main').innerHTML=performancePage();
+};
+
+
+window.openEmpProfile=function(email){
+  ST.profileEmail=email; ST.page='profile';
+  document.getElementById('main').innerHTML=empProfilePage(email);
+};
+function empProfilePage(email){
+  var u=ST.allUsers.find(function(x){return x.email===email;})||{name:email,email:email,role:'employee'};
+  var tasks=[]; var metCount=0;
+  ST.meetings.forEach(function(m){
+    if((m.attendees||[]).some(function(a){return a.email===email;})) metCount++;
+    (m.minutes||[]).forEach(function(mn){
+      if(mn.type==='assign'&&mn.task&&mn.task.assigneeEmail===email)
+        tasks.push(Object.assign({},mn.task,{text:mn.text,meetingName:m.meetingName||'Untitled',date:m.date,mid:m.id}));
+    });
+  });
+  var total=tasks.length,done=tasks.filter(function(t){return t.status==='completed';}).length;
+  var ongoing=tasks.filter(function(t){return t.status==='ongoing';}).length;
+  var pending=tasks.filter(function(t){return t.status==='pending';}).length;
+  var overdue=tasks.filter(function(t){return isOv(t.deadline,t.status);}).length;
+  var rate=total>0?Math.round(done/total*100):0;
+  var rCol=rate>=80?'#16a34a':rate>=50?'#d97706':'#dc2626';
+  var html='<div class="back-link" onclick="goPage(\'performance\')">← Back to Performance</div>';
+  // Header
+  html+='<div style="background:#0f1535;border-radius:16px;padding:24px 28px;margin-bottom:16px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">';
+  html+='<div style="width:64px;height:64px;border-radius:16px;background:#e8600a;color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;flex-shrink:0">'+ini(u.name)+'</div>';
+  html+='<div style="flex:1"><div style="font-size:22px;font-weight:700;color:#fff">'+u.name+'</div>';
+  html+='<div style="font-size:12px;color:rgba(255,255,255,.5);margin-top:2px">'+u.email+'</div>';
+  html+='<div style="margin-top:6px;display:flex;gap:7px;flex-wrap:wrap"><span style="background:rgba(232,96,10,.2);color:#e8600a;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">'+u.role+'</span>';
+  html+='<span style="background:rgba(255,255,255,.1);color:rgba(255,255,255,.5);padding:2px 10px;border-radius:20px;font-size:11px">'+metCount+' meetings</span></div></div>';
+  html+='<div style="text-align:center"><div style="font-size:42px;font-weight:700;color:'+rCol+'">'+rate+'%</div><div style="font-size:11px;color:rgba(255,255,255,.4)">Completion</div></div></div>';
+  // Stats
+  html+='<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px">';
+  [{v:total,l:'Total',c:'#0f1535'},{v:done,l:'Done',c:'#16a34a'},{v:ongoing,l:'Ongoing',c:'#2563eb'},{v:pending,l:'Pending',c:'#d97706'},{v:overdue,l:'Overdue',c:overdue?'#dc2626':'#6b7280'}].forEach(function(s){
+    html+='<div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:14px;text-align:center"><div style="font-size:26px;font-weight:700;color:'+s.c+'">'+s.v+'</div><div style="font-size:11px;color:#888;margin-top:2px">'+s.l+'</div></div>';
+  });
+  html+='</div>';
+  // Progress bar
+  html+='<div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:14px">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div style="font-size:13px;font-weight:700;color:#0f1535">Completion Progress</div><div style="font-size:13px;font-weight:700;color:'+rCol+'">'+rate+'%</div></div>';
+  html+='<div style="background:#f3f4f6;border-radius:20px;height:12px;overflow:hidden"><div style="height:100%;width:'+rate+'%;background:'+rCol+';border-radius:20px;transition:width .3s"></div></div>';
+  html+='<div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:#888"><span>✅ '+done+' completed</span><span>⏳ '+pending+' pending</span><span>🔄 '+ongoing+' ongoing</span>'+(overdue?'<span style="color:#dc2626">⚠ '+overdue+' overdue</span>':'')+'</div></div>';
+  // Recent tasks
+  html+='<div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px">';
+  html+='<div style="font-size:13px;font-weight:700;color:#0f1535;margin-bottom:12px">🕐 Recent Tasks</div>';
+  var recent=tasks.slice().sort(function(a,b){return (b.date||'').localeCompare(a.date||'');}).slice(0,8);
+  if(!recent.length) html+='<div style="color:#aaa;text-align:center;padding:16px">No tasks assigned</div>';
+  recent.forEach(function(t){
+    var ov=isOv(t.deadline,t.status);
+    html+='<div style="padding:9px 12px;border-radius:8px;margin-bottom:6px;background:#f9fafb;border-left:3px solid '+(ov?'#dc2626':t.status==='completed'?'#16a34a':t.status==='ongoing'?'#2563eb':'#d97706')+'">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px"><div style="font-size:12px;font-weight:600;color:#0f1535;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+t.text+'</div>';
+    html+='<span class="badge '+(t.status==='completed'?'b-completed':t.status==='ongoing'?'b-ongoing':'b-pending')+'" style="font-size:10px;margin-left:8px;flex-shrink:0">'+t.status+'</span></div>';
+    html+='<div style="font-size:11px;color:#888">'+t.meetingName+' · '+t.date+(t.deadline?' · Due: '+fmtD(t.deadline):'')+(ov?' ⚠':'')+'</div></div>';
+  });
+  html+='</div>';
+  html+='<div style="margin-top:12px;display:flex;gap:8px">';
+  html+='<button class="btn btn-bl" onclick="sendEmpReminder(\''+email+'\',\''+u.name+'\')">✉ Send Reminder</button>';
+  html+='<button class="btn btn-gy" onclick="goPage(\'performance\')">← Back</button></div>';
+  return html;
+}
+window.viewEmpMeetings=function(email){
+  var emp=ST.allUsers.find(function(u){return u.email===email;})||{name:email,email:email};
+  var meetings=ST.meetings.filter(function(m){
+    return (m.attendees||[]).some(function(a){return a.email===email;})||m.createdByEmail===email;
+  });
+  var content='<div class="back-link" onclick="goPage(\'performance\')">← Back to Performance</div>'+
+  '<div class="page-head"><div><div class="page-title">👤 '+emp.name+'</div><div class="page-sub">'+email+' &nbsp;·&nbsp; '+meetings.length+' meeting(s)</div></div></div>'+
+  (meetings.length===0?'<div style="text-align:center;padding:3rem;color:#aaa;background:#fff;border-radius:14px;border:1px solid #e5e7eb">No meetings found for this employee</div>':
+  meetings.map(function(m){
+    var myTasks=(m.minutes||[]).filter(function(mn){return mn.type==='assign'&&mn.task&&mn.task.assigneeEmail===email;});
+    var done=myTasks.filter(function(mn){return mn.task.status==='completed';}).length;
+    return '<div class="mtg-list-item" onclick="openMeeting(\''+m.id+'\')">'+
+    '<div class="mtg-icon">📋</div>'+
+    '<div style="flex:1">'+
+    '<div style="font-size:14px;font-weight:700;color:#0f1535">'+(m.meetingName||'Untitled')+'</div>'+
+    '<div style="font-size:12px;color:#888;margin-top:3px">'+m.date+' &nbsp;·&nbsp; '+(m.type==='internal'?m.teamName:m.clientName)+' &nbsp;·&nbsp; '+myTasks.length+' assigned task(s)</div>'+
+    '</div>'+
+    '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px">'+
+    '<span class="badge '+(m.status==='completed'?'b-s-completed':m.status==='cancelled'?'b-s-cancelled':m.status==='ongoing'?'b-s-ongoing':'b-scheduled')+'">'+(m.status||'scheduled')+'</span>'+
+    (myTasks.length?'<span class="badge '+(done===myTasks.length?'b-completed':'b-pending')+'">'+done+'/'+myTasks.length+' done</span>':'')+
+    '</div>'+
+    '</div>';
+  }).join(''));
+  ST.page='performance';
+  document.getElementById('main').innerHTML=content;
+};
+
+window.sendEmpReminder=function(email,name){
+  var tasks=[];
+  ST.meetings.forEach(function(m){
+    (m.minutes||[]).forEach(function(mn){
+      if(mn.type==='assign'&&mn.task&&mn.task.assigneeEmail===email&&mn.task.status!=='completed'){
+        tasks.push({meeting:m.meetingName,text:mn.text,deadline:mn.task.deadline,status:mn.task.status});
+      }
+    });
+  });
+  var lines=tasks.map(function(t,i){return (i+1)+'. '+t.text+' ('+t.meeting+')\n   Deadline: '+fmtD(t.deadline)+' | Status: '+t.status;}).join('\n\n');
+  var subj='[NTF MeetTrack] Pending Tasks Reminder — '+name;
+  var body='Dear '+name+',\n\nThis is a reminder about your pending tasks in NTF MeetTrack:\n\n'+(lines||'No pending tasks found.')+'\n\nPlease update the status at the earliest.\n\nRegards,\nNTF India Management';
+  openGmail(email,subj,body);
+  toast('Opening Gmail reminder for '+name,'ok');
+};
+
+window.exportPerfCSV=function(){
+  var emps=ST.allUsers.filter(function(u){return u.role==='employee';});
+  var empMap={};
+  emps.forEach(function(u){empMap[u.email]={name:u.name,email:u.email,total:0,completed:0,pending:0,ongoing:0,overdue:0};});
+  ST.meetings.forEach(function(m){
+    (m.minutes||[]).forEach(function(mn){
+      if(mn.type!=='assign'||!mn.task) return;
+      var t=mn.task;var e=empMap[t.assigneeEmail];
+      if(!e) return;
+      e.total++;
+      if(t.status==='completed') e.completed++;
+      else if(t.status==='ongoing') e.ongoing++;
+      else e.pending++;
+      if(isOv(t.deadline,t.status)) e.overdue++;
+    });
+  });
+  var rows=[['Name','Email','Total Tasks','Completed','Ongoing','Pending','Overdue','Completion Rate %']];
+  Object.values(empMap).forEach(function(e){
+    rows.push([e.name,e.email,e.total,e.completed,e.ongoing,e.pending,e.overdue,e.total>0?Math.round(e.completed/e.total*100):0]);
+  });
+  var csv=rows.map(function(r){return r.map(function(c){return '"'+String(c).replace(/"/g,'""')+'"';}).join(',');}).join('\n');
+  try{
+    var blob=new Blob([csv],{type:'text/csv'});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement('a');a.href=url;a.download='NTF_Performance_'+today()+'.csv';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(function(){URL.revokeObjectURL(url);},1000);
+    toast('CSV downloaded!','ok');
+  } catch(e){
+    // Fallback: open as data URI
+    var uri='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+    var a=document.createElement('a');a.href=uri;a.download='NTF_Performance_'+today()+'.csv';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    toast('CSV downloaded!','ok');
+  }
+};
+
+
+window.exportMonthlyPerfPDF=function(){
+  if(typeof window.jspdf==='undefined'){toast('PDF not available locally. Use Live Server or Netlify to download PDF.','err');window.print();return;}
+  var doc=new window.jspdf.jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+  var pw=297; var lm=14;
+  var now=new Date(); var mo=new Date(now.getFullYear(),now.getMonth(),1);
+  var monthMeetings=ST.meetings.filter(function(m){return new Date(m.date)>=mo;});
+  var monthLabel=now.toLocaleDateString('en-IN',{month:'long',year:'numeric'});
+  var empData={};
+  ST.allUsers.filter(function(u){return u.role==='employee';}).forEach(function(u){
+    empData[u.email]={name:u.name,email:u.email,total:0,completed:0,pending:0,ongoing:0,overdue:0,meetings:0};
+  });
+  monthMeetings.forEach(function(m){
+    (m.attendees||[]).forEach(function(a){if(empData[a.email])empData[a.email].meetings++;});
+    (m.minutes||[]).forEach(function(mn){
+      if(mn.type!=='assign'||!mn.task)return;
+      var t=mn.task; var e=empData[t.assigneeEmail]; if(!e)return;
+      e.total++;
+      if(t.status==='completed')e.completed++;
+      else if(t.status==='ongoing')e.ongoing++; else e.pending++;
+      if(isOv(t.deadline,t.status))e.overdue++;
+    });
+  });
+  var emps=Object.values(empData).filter(function(e){return e.total>0||e.meetings>0;}).sort(function(a,b){return (b.completed/Math.max(b.total,1))-(a.completed/Math.max(a.total,1));});
+  // Cover page
+  doc.setFillColor(15,21,53); doc.rect(0,0,pw,210,'F');
+  doc.setFillColor(232,96,10); doc.rect(0,0,3,210,'F');
+  doc.setFont('helvetica','bold'); doc.setFontSize(30); doc.setTextColor(255,255,255);
+  doc.text('Monthly Performance Report',lm,80);
+  doc.setFontSize(18); doc.setTextColor(232,96,10);
+  doc.text(monthLabel,lm,95);
+  doc.setFontSize(11); doc.setTextColor(168,196,224);
+  doc.text('NTF India · MeetTrack · '+new Date().toLocaleDateString('en-IN'),lm,160);
+  doc.text('Total: '+emps.length+' employees · '+monthMeetings.length+' meetings',lm,168);
+  // Summary table
+  doc.addPage();
+  doc.setFillColor(15,21,53); doc.rect(0,0,pw,14,'F');
+  doc.setFillColor(232,96,10); doc.rect(0,0,3,14,'F');
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(255,255,255);
+  doc.text('Employee Summary — '+monthLabel,lm,9);
+  var headers=['#','Name','Email','Meetings','Tasks','Done','Pending','Overdue','Rate'];
+  var cols=[6,36,52,18,14,12,14,14,14]; var tx=[lm];
+  cols.forEach(function(w,i){if(i>0)tx.push(tx[i-1]+cols[i-1]);});
+  var ty=18;
+  doc.setFillColor(30,46,80); doc.rect(lm,ty,pw-lm*2,7,'F');
+  doc.setFontSize(7); doc.setTextColor(200,210,230);
+  headers.forEach(function(h,i){doc.text(h,tx[i]+1,ty+5);});
+  ty+=7;
+  emps.forEach(function(e,i){
+    if(ty>200){doc.addPage();ty=20;}
+    var rate=e.total>0?Math.round(e.completed/e.total*100):0;
+    var rc=rate>=80?[22,163,74]:rate>=50?[217,119,6]:[220,38,38];
+    doc.setFillColor(i%2===0?248:255,i%2===0?249:255,i%2===0?252:255);
+    doc.rect(lm,ty,pw-lm*2,7,'F');
+    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(20,20,40);
+    [String(i+1),e.name.slice(0,22),e.email.slice(0,28),String(e.meetings),String(e.total),String(e.completed),String(e.pending),String(e.overdue)].forEach(function(v,j){doc.text(v,tx[j]+1,ty+5);});
+    doc.setFillColor.apply(doc,rc); doc.roundedRect(tx[8]+1,ty+1.5,11,4,1,1,'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(255,255,255);
+    doc.text(rate+'%',tx[8]+6.5,ty+4.5,{align:'center'});
+    ty+=7;
+  });
+  doc.save('NTF_Performance_'+monthLabel.replace(/ /g,'_')+'.pdf');
+  toast('Monthly PDF downloaded!','ok');
+};
+window.exportPerfPDF=function(){
+  if(typeof window.jspdf==='undefined'){
+    toast('PDF library not loaded. Use Live Server or Netlify.','err');
+    // Fallback: print the page
+    window.print();
+    return;
+  }
+  var doc=new window.jspdf.jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+  var pw=297;var lm=14;
+
+  // Header
+  doc.setFillColor(15,21,53);doc.rect(0,0,pw,22,'F');
+  doc.setFillColor(232,96,10);doc.roundedRect(lm,3,14,14,1.5,1.5,'F');
+  doc.setFontSize(8);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
+  doc.text('NTF',lm+7,9,{align:'center'});doc.setFontSize(5.5);doc.setFont('helvetica','normal');doc.text('INDIA',lm+7,13,{align:'center'});
+  doc.setFontSize(13);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);doc.text('MeetTrack',32,10);
+  doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(180,180,200);doc.text('Employee Performance Report',32,15);
+  doc.setFontSize(7);doc.setTextColor(200,200,220);doc.text('Generated: '+new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}),pw-14,10,{align:'right'});
+
+  var y=30;
+  var cols=[20,55,18,18,16,16,16,28];
+  var headers=['#','Employee','Total','Completed','Ongoing','Pending','Overdue','Rate'];
+  var cx=[lm];cols.forEach(function(w,i){if(i>0)cx.push(cx[i-1]+cols[i-1]);});
+
+  // Table header
+  doc.setFillColor(15,21,53);doc.rect(lm,y,pw-lm*2,8,'F');
+  doc.setFont('helvetica','bold');doc.setFontSize(7);doc.setTextColor(255,255,255);
+  headers.forEach(function(h,i){doc.text(h,cx[i]+1,y+5.5);});
+  y+=8;
+
+  var empMap2={};
+  ST.allUsers.filter(function(u){return u.role==='employee';}).forEach(function(u){empMap2[u.email]={name:u.name,email:u.email,total:0,completed:0,pending:0,ongoing:0,overdue:0};});
+  ST.meetings.forEach(function(m){
+    (m.minutes||[]).forEach(function(mn){
+      if(mn.type!=='assign'||!mn.task) return;
+      var t=mn.task;var e=empMap2[t.assigneeEmail];
+      if(!e) return;
+      e.total++;
+      if(t.status==='completed') e.completed++;
+      else if(t.status==='ongoing') e.ongoing++;
+      else e.pending++;
+      if(isOv(t.deadline,t.status)) e.overdue++;
+    });
+  });
+  Object.values(empMap2).sort(function(a,b){return b.total-a.total;}).forEach(function(e,i){
+    if(y>185){doc.addPage();y=20;}
+    if(i%2===0) doc.setFillColor(249,250,252); else doc.setFillColor(255,255,255);
+    doc.rect(lm,y,pw-lm*2,7,'F');
+    doc.setDrawColor(230,230,235);doc.setLineWidth(0.2);doc.rect(lm,y,pw-lm*2,7,'S');
+    var rate=e.total>0?Math.round(e.completed/e.total*100):0;
+    var vals=[String(i+1),e.name,String(e.total),String(e.completed),String(e.ongoing),String(e.pending),String(e.overdue),rate+'%'];
+    doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(30,30,50);
+    vals.forEach(function(v,j){doc.text(v,cx[j]+1,y+5);});
+    y+=7;
+  });
+
+  // Footer
+  var tp=doc.internal.getNumberOfPages();
+  for(var pg=1;pg<=tp;pg++){
+    doc.setPage(pg);
+    doc.setFillColor(15,21,53);doc.rect(0,doc.internal.pageSize.height-8,pw,8,'F');
+    doc.setFont('helvetica','normal');doc.setFontSize(6.5);doc.setTextColor(180,180,200);
+    doc.text('NTF India — MeetTrack | Confidential',lm,doc.internal.pageSize.height-3);
+    doc.text('Page '+pg+' of '+tp,pw-lm,doc.internal.pageSize.height-3,{align:'right'});
+  }
+  doc.save('NTF_Employee_Performance_'+today()+'.pdf');
+  toast('Performance PDF downloaded!','ok');
 };
 
 // ── MODAL ────────────────────────────────────────
