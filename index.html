@@ -279,9 +279,60 @@ function downloadFile(url,name){
     document.body.appendChild(a);a.click();document.body.removeChild(a);
   }
 }
+// Email preference - stored in localStorage
+function getMailPref(){ return localStorage.getItem('ntf_mail_pref')||'outlook'; }
+function setMailPref(p){ localStorage.setItem('ntf_mail_pref',p); }
+
 function openGmail(to, subject, body){
-  window.open('https://mail.google.com/mail/?view=cm&to='+encodeURIComponent(to)+'&su='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body),'_blank');
+  var pref=getMailPref();
+  if(pref==='gmail'){
+    window.open('https://mail.google.com/mail/?view=cm&to='+encodeURIComponent(to)+'&su='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body),'_blank');
+  } else if(pref==='outlook'){
+    // Outlook Web (works for both Outlook.com and Office 365)
+    window.open('https://outlook.office.com/mail/deeplink/compose?to='+encodeURIComponent(to)+'&subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body.replace(/\n/g,'<br>')),'_blank');
+  } else {
+    // mailto: opens default mail app (Outlook desktop, Apple Mail, etc.)
+    window.location.href='mailto:'+encodeURIComponent(to)+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body);
+  }
 }
+
+// Show mail preference picker
+window.showMailPicker=function(to,subject,body){
+  document.querySelectorAll('.mail-picker-modal').forEach(function(m){m.remove();});
+  var pref=getMailPref();
+  var d=document.createElement('div');
+  d.className='mail-picker-modal';
+  d.style.cssText='position:fixed;inset:0;background:rgba(10,14,40,.65);display:flex;align-items:center;justify-content:center;z-index:9999';
+  // Build modal content using DOM to avoid quote escaping issues
+  var box=document.createElement('div');
+  box.style.cssText='background:#fff;border-radius:14px;padding:22px;width:360px;box-shadow:0 20px 60px rgba(0,0,0,.3)';
+  var opts=[
+    {val:'gmail',lbl:'📧 Gmail (Web Browser)'},
+    {val:'outlook',lbl:'📬 Outlook Web (Office 365)'},
+    {val:'mailto',lbl:'💻 Outlook Desktop / Default Mail App'}
+  ];
+  var radiosHTML=opts.map(function(o){
+    return '<label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:2px solid '+(pref===o.val?'#e8600a':'#e5e7eb')+';border-radius:8px;cursor:pointer;font-size:13px;margin-bottom:6px">'+
+    '<input type="radio" name="mailpref" value="'+o.val+'" '+(pref===o.val?'checked':'')+' style="accent-color:#e8600a">'+o.lbl+'</label>';
+  }).join('');
+  box.innerHTML='<div style="font-size:16px;font-weight:700;color:#0f1535;margin-bottom:5px">📧 Send via which app?</div>'+
+    '<div style="font-size:12px;color:#888;margin-bottom:14px">Your choice is remembered for next time</div>'+
+    '<div style="margin-bottom:14px">'+radiosHTML+'</div>'+
+    '<div style="display:flex;gap:8px;justify-content:flex-end">'+
+    '<button id="mpick-cancel" style="padding:8px 16px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;font-size:13px;background:#fff">Cancel</button>'+
+    '<button id="mpick-send" style="padding:8px 18px;background:#e8600a;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">Send →</button>'+
+    '</div>';
+  d.appendChild(box);
+  document.body.appendChild(d);
+  d.querySelector('#mpick-cancel').onclick=function(){d.remove();};
+  d.querySelector('#mpick-send').onclick=function(){
+    var sel=d.querySelector('input[name="mailpref"]:checked');
+    if(sel){ setMailPref(sel.value); }
+    d.remove();
+    openGmail(to,subject,body);
+  };
+  d.onclick=function(e){if(e.target===d)d.remove();};
+};
 
 // ── FIREBASE ────────────────────────────────────
 function loadAll(){ return Promise.all([loadUsers(),loadTeams(),loadClients(),loadMeetings()]); }
@@ -745,9 +796,14 @@ function meetingPage(){
 
   var quickHTML='';
   if(canEdit){
-    quickHTML=ST.allUsers.filter(function(u){return !atts.find(function(a){return a.email===u.email;});}).map(function(u){
-      return '<button class="btn btn-gy btn-sm" style="margin:2px" onclick="quickAddAtt(\''+u.email+'\',\''+u.name+'\')">+ '+u.name+' <span class="b-emp">'+u.role+'</span></button>';
+    var availUsers=ST.allUsers.filter(function(u){return !atts.find(function(a){return a.email===u.email;});});
+    var userButtons=availUsers.map(function(u){
+      return '<button class="btn btn-gy btn-sm att-quick-btn" style="margin:2px" data-name="'+u.name.toLowerCase()+'" data-email="'+u.email.toLowerCase()+'" onclick="quickAddAtt(\''+u.email+'\',\''+u.name+'\')">+ '+u.name+' <span class="b-emp">'+u.role+'</span></button>';
     }).join('');
+    quickHTML='<div style="margin-bottom:8px">'+
+      '<input id="att-search" class="inp" placeholder="🔍 Search employee by name or email..." style="margin-bottom:8px;font-size:12px" oninput="filterAttSearch(this.value)">'+
+      '<div id="att-btn-list" style="display:flex;flex-wrap:wrap;max-height:120px;overflow-y:auto">'+userButtons+'</div>'+
+      '</div>';
   }
 
   // Build minutes HTML
@@ -777,12 +833,33 @@ function meetingPage(){
       '<div><div class="field-label">Deadline</div><div style="font-size:12px;color:'+(ov?'#dc2626':'#111')+';font-weight:'+(ov?700:400)+'">'+fmtD(t.deadline)+(ov?' ⚠':'')+'</div></div>'+
       '<div><div class="field-label">Status</div><span class="badge '+(t.status==='pending'?'b-pending':t.status==='ongoing'?'b-ongoing':'b-completed')+'">'+t.status.toUpperCase()+'</span></div>'+
       '</div>'+
+      ((t.updateLog&&t.updateLog.length>0)?
+        '<details style="margin-top:8px" open>'+
+        '<summary style="font-size:11px;font-weight:700;color:#374151;letter-spacing:.3px;list-style:none;cursor:pointer;padding:6px 10px;background:#f1f5f9;border-radius:7px;display:flex;align-items:center;gap:6px">'+
+        '<span>📋 Update Thread</span><span style="background:#e8600a;color:#fff;border-radius:10px;padding:1px 7px;font-size:9px">'+t.updateLog.length+' updates</span>'+
+        '</summary>'+
+        '<div style="margin-top:4px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px;overflow:hidden">'+
+        t.updateLog.slice().reverse().map(function(log,li){
+          var isLatest=li===0;
+          return '<div style="padding:9px 12px;border-bottom:1px solid #f3f4f6;background:'+(isLatest?'#fff7ed':'#fff')+'">'+
+          '<div style="display:flex;align-items:center;gap:7px;margin-bottom:4px;flex-wrap:wrap">'+
+          (isLatest?'<span style="font-size:9px;background:#e8600a;color:#fff;padding:1px 7px;border-radius:10px;font-weight:700">LATEST</span>':'')+
+          '<span style="font-size:11px;font-weight:700;color:#0f1535">'+log.by+'</span>'+
+          '<span style="font-size:10px;color:#9ca3af">'+log.at+'</span>'+
+          '<span class="badge '+(log.status==='pending'?'b-pending':log.status==='ongoing'?'b-ongoing':'b-completed')+'" style="font-size:9px">'+log.status+'</span>'+
+          (log.deadlineChanged?'<span style="font-size:10px;color:#d97706;font-weight:600">📅 '+log.deadlineChanged+'</span>':'')+
+          '</div>'+
+          (log.comment?'<div style="font-size:11px;color:#374151;line-height:1.5;padding:4px 8px;background:#f9fafb;border-left:3px solid #e8600a;border-radius:0 4px 4px 0">'+log.comment+'</div>':'<div style="font-size:10px;color:#9ca3af;font-style:italic">Status updated</div>')+
+          '</div>';
+        }).join('')+
+        '</div></details>'
+      :
       (t.lastComment?'<div class="task-note">💬 "'+t.lastComment+'" — <em>'+(t.lastUpdatedBy||'?')+'</em></div>':'')+
+      '')+
       attachHTML+
       '<div class="min-actions">'+
       (canEdit?'<button class="btn btn-or btn-sm" onclick="editMinute('+i+')">✏ Edit</button>':'')+
-      (t&&t.assigneeEmail?'<button class="btn btn-gr btn-sm" onclick="sendTaskGmail('+i+')">✉ Send Gmail</button>':'')+
-      (mn.task&&mn.task.assigneeEmail?'<button class="btn btn-gr btn-sm" onclick="sendTaskGmail('+i+')">✉ Gmail</button>':'')+
+      (t&&t.assigneeEmail?'<button class="btn btn-gr btn-sm" onclick="sendTaskGmail('+i+')">✉ Send Mail</button>':'')+
       (canEdit?'<button class="btn btn-rd btn-sm" onclick="delMinute('+i+')">🗑 Delete</button>':'')+
       '</div></div>':
       '<div class="min-body">'+
@@ -868,7 +945,19 @@ function meetingPage(){
   '<div id="assign-fields" style="display:none;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:12px;margin-bottom:10px">'+
   '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">'+
   '<div><div class="field-label" style="margin-bottom:5px">👤 Assign To (Attendees Only)</div>'+
-  '<select class="inp" id="min-assignee"><option value="">— Select attendee —</option>'+attOpts+'</select></div>'+
+  '<div style="font-size:11px;color:#6b7280;margin-bottom:4px">✅ Tick to select — multiple allowed</div>'+
+  '<input id="multi-att-search" class="inp" placeholder="🔍 Search attendee..." style="margin-bottom:6px;font-size:12px" oninput="filterMultiAtt(this.value)">'+
+  '<div id="assignee-checkbox-list" style="max-height:130px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:4px">'+
+  atts.map(function(a){
+    return '<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;border-radius:6px;font-size:13px" class="att-cb-row" data-name="'+a.name.toLowerCase()+'" data-email="'+a.email.toLowerCase()+'">'+
+    '<input type="checkbox" class="att-cb" value="'+a.email+'" data-name="'+a.name+'" style="width:16px;height:16px;accent-color:#e8600a;flex-shrink:0">'+
+    '<span>'+a.name+'</span>'+
+    '<span style="font-size:11px;color:#9ca3af;margin-left:4px">('+a.email+')</span>'+
+    '</label>';
+  }).join('')+
+  '</div>'+
+  '<div id="selected-assignees-preview" style="margin-top:6px;min-height:22px;display:flex;flex-wrap:wrap;gap:4px"></div>'+
+  '</div>'+
   '<div><div class="field-label" style="margin-bottom:5px">📅 Deadline</div><input type="date" class="inp" id="min-deadline"></div>'+
   '<div><div class="field-label" style="margin-bottom:5px">🔄 Status</div>'+
   '<select class="inp" id="min-status"><option value="pending">Pending</option><option value="ongoing">Ongoing</option><option value="completed">Completed</option></select></div>'+
@@ -929,8 +1018,33 @@ function myTasksPage(){
     '<option value="completed"'+(t.status==='completed'?' selected':'')+'>Completed</option>'+
     '</select>'+
     '</div>'+
-    '<textarea class="inp" id="mtc-'+t.mid+'-'+t.mi+'" placeholder="Add a comment or update..." style="height:46px;font-size:12px;margin-bottom:10px">'+(t.lastComment||'')+'</textarea>'+
-    (t.lastComment?'<div class="task-note" style="margin-bottom:10px">"'+t.lastComment+'" — <em>'+(t.lastUpdatedBy||'?')+'</em></div>':'')+
+    // ── Update Thread ──
+    ((t.updateLog&&t.updateLog.length>0)?
+      '<div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:12px;overflow:hidden">'+
+      '<div style="padding:8px 12px;background:#f1f5f9;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between">'+
+      '<span style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px">📋 Update Thread ('+t.updateLog.length+' updates)</span>'+
+      '<span style="font-size:10px;color:#9ca3af">Newest first</span>'+
+      '</div>'+
+      '<div style="max-height:200px;overflow-y:auto">'+
+      t.updateLog.slice().reverse().map(function(log,li){
+        var isFirst=li===t.updateLog.length-1;
+        return '<div style="padding:10px 14px;border-bottom:1px solid #f3f4f6;background:'+(isFirst?'#fff7ed':'#fff')+'">'+
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">'+
+        '<span style="font-size:12px;font-weight:700;color:#0f1535">'+log.by+'</span>'+
+        '<span style="font-size:10px;color:#9ca3af">'+log.at+'</span>'+
+        '<span class="badge '+(log.status==='pending'?'b-pending':log.status==='ongoing'?'b-ongoing':'b-completed')+'" style="font-size:9px">'+log.status+'</span>'+
+        (log.deadlineChanged?'<span style="font-size:10px;color:#d97706;font-weight:600">📅 '+log.deadlineChanged+'</span>':'')+
+        (isFirst?'<span style="font-size:9px;background:#fff7ed;color:#c2410c;padding:1px 7px;border-radius:10px;border:1px solid #fed7aa;font-weight:600">Latest</span>':'')+
+        '</div>'+
+        (log.comment?'<div style="font-size:12px;color:#374151;line-height:1.5;padding:4px 8px;background:#f9fafb;border-left:3px solid #e8600a;border-radius:0 5px 5px 0">'+log.comment+'</div>':'<div style="font-size:11px;color:#9ca3af;font-style:italic">Status updated (no comment)</div>')+
+        '</div>';
+      }).join('')+
+      '</div></div>'
+    :'')+
+    '<div style="margin-bottom:10px">'+
+    '<div class="field-label" style="margin-bottom:5px">✏ Add New Update</div>'+
+    '<textarea class="inp" id="mtc-'+t.mid+'-'+t.mi+'" placeholder="Type your update, progress notes, blockers..." style="height:60px;font-size:12px"></textarea>'+
+    '</div>'+
     '<div style="margin-bottom:10px">'+
     '<div class="field-label" style="margin-bottom:5px">📎 Attach Proof / Evidence</div>'+
     '<div class="file-upload-area" onclick="document.getElementById(\'proof-'+t.mid+'-'+t.mi+'\').click()">'+
@@ -978,7 +1092,7 @@ window.sendTaskGmail = function(minIdx){
   var ref = m.meetingName||(m.type==='internal'?m.teamName:m.clientName)||'Meeting';
   var subject = '[NTF MeetTrack] Task Assigned — '+ref;
   var body = 'Dear '+t.assignee+',\n\nYou have been assigned a task:\n\nMeeting: '+ref+'\nDate: '+m.date+'\n\nTask:\n'+mn.text+'\n\nDeadline: '+fmtD(t.deadline)+'\nStatus: '+t.status+'\nAssigned by: '+ST.profile.name+'\n\nPlease log in to NTF MeetTrack to update your task status.\n\nRegards,\n'+ST.profile.name+'\nNTF India';
-  openGmail(t.assigneeEmail, subject, body);
+  showMailPicker(t.assigneeEmail, subject, body);
   toast('Opening Gmail for '+t.assignee+'...','ok');
 };
 
@@ -999,7 +1113,7 @@ window.sendMyUpdateGmail = function(mid, mi){
   if(!to){ toast('No managers found to notify','err'); return; }
   var subject = '[NTF MeetTrack] Task Update — '+ref;
   var body = 'Dear Manager,\n\n'+ST.profile.name+' has sent a task update:\n\nMeeting: '+ref+'\nDate: '+m.date+'\n\nTask:\n'+mn.text+'\n\nStatus: '+currentStatus+'\nDeadline: '+fmtD(t.deadline)+(currentComment?'\nNote: "'+currentComment+'"':'')+'\n\nNTF India MeetTrack';
-  openGmail(to, subject, body);
+  showMailPicker(to, subject, body);
   toast('Opening Gmail to notify managers...','ok');
 };
 
@@ -1010,7 +1124,7 @@ window.sendTaskGmail = function(minIdx){
   var t=mn.task; var ref=m.meetingName||(m.type==='internal'?m.teamName:m.clientName)||'Meeting';
   var subj='[NTF MeetTrack] Task Assigned — '+ref;
   var body='Dear '+t.assignee+',\n\nTask: '+mn.text+'\nMeeting: '+ref+'\nDeadline: '+fmtD(t.deadline)+'\nAssigned by: '+ST.profile.name+'\n\nNTF India MeetTrack';
-  openGmail(t.assigneeEmail,subj,body);
+  showMailPicker(t.assigneeEmail,subj,body);
   toast('Opening Gmail...','ok');
 };
 window.sendMyUpdateGmail = function(mid,mi){
@@ -1199,6 +1313,41 @@ window.delClient=function(id){
 };
 
 // Attendees
+
+
+window.filterMultiAtt=function(val){
+  var q=val.toLowerCase().trim();
+  document.querySelectorAll('.att-cb-row').forEach(function(row){
+    var name=row.getAttribute('data-name')||'';
+    var email=row.getAttribute('data-email')||'';
+    row.style.display=(q===''||name.includes(q)||email.includes(q))?'flex':'none';
+  });
+};
+
+// Update preview chips when checkbox ticked
+document.addEventListener('change',function(e){
+  if(e.target.classList.contains('att-cb')){
+    var preview=document.getElementById('selected-assignees-preview');
+    if(!preview) return;
+    var checked=Array.from(document.querySelectorAll('.att-cb:checked'));
+    preview.innerHTML=checked.map(function(cb){
+      return '<span style="background:#fff7ed;border:1px solid #fed7aa;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:600;color:#c2410c">'+cb.getAttribute('data-name')+'</span>';
+    }).join('');
+    // Highlight checked rows
+    document.querySelectorAll('.att-cb-row').forEach(function(row){
+      var cb=row.querySelector('.att-cb');
+      row.style.background=cb&&cb.checked?'#fff7ed':'';
+    });
+  }
+});
+window.filterAttSearch=function(val){
+  var q=val.toLowerCase().trim();
+  document.querySelectorAll('.att-quick-btn').forEach(function(btn){
+    var name=btn.getAttribute('data-name')||'';
+    var email=btn.getAttribute('data-email')||'';
+    btn.style.display=(q===''||name.includes(q)||email.includes(q))?'':'none';
+  });
+};
 window.quickAddAtt=function(email,name){
   if(!ST.cur) return;
   if(!ST.cur.attendees) ST.cur.attendees=[];
@@ -1252,8 +1401,29 @@ window.addMinute=function(){
     var ssel=document.getElementById('min-status');
     var assigneeEmail=asel?asel.value:'';
     var assigneeName=asel&&asel.selectedIndex>0?asel.options[asel.selectedIndex].text:'';
-    if(!assigneeEmail){toast('Select a person to assign','err');return;}
-    minObj.task={assignee:assigneeName,assigneeEmail:assigneeEmail,deadline:dsel?dsel.value:'',status:ssel?ssel.value:'pending',lastUpdatedBy:'',lastComment:''};
+    var deadline=dsel?dsel.value:''; var statusVal=ssel?ssel.value:'pending';
+    // Read from checkboxes (new UI)
+    var cbChecked=Array.from(document.querySelectorAll('.att-cb:checked'));
+    var selectedOpts=cbChecked.length>0
+      ? cbChecked.map(function(cb){return {value:cb.value,text:cb.getAttribute('data-name')};})
+      : (asel?Array.from(asel.selectedOptions).filter(function(o){return o.value;}):[]);
+    if(!selectedOpts.length){toast('Select at least one person to assign','err');return;}
+    var createdAt=new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+    if(selectedOpts.length>1){
+      selectedOpts.forEach(function(opt){
+        var mn2={text:text,type:'assign',addedBy:ST.profile.name,addedAt:today(),attachmentUrl:'',attachmentName:''};
+        mn2.task={assignee:opt.text,assigneeEmail:opt.value,deadline:deadline,status:statusVal,lastUpdatedBy:'',lastComment:'',updateLog:[{status:statusVal,comment:'Task created',by:ST.profile.name,at:createdAt}]};
+        if(!ST.cur.minutes) ST.cur.minutes=[];
+        ST.cur.minutes.push(mn2);
+      });
+      saveMeeting(ST.cur).then(function(){
+        toast('Task assigned to '+selectedOpts.length+' people! ✅','ok');
+        document.querySelectorAll('.modal-bg').forEach(function(m){m.remove();});
+        render();
+      }).catch(function(e){toast('Error: '+e.message,'err');}); return;
+    }
+    var assigneeEmail=selectedOpts[0].value; var assigneeName=selectedOpts[0].text;
+    minObj.task={assignee:assigneeName,assigneeEmail:assigneeEmail,deadline:deadline,status:statusVal,lastUpdatedBy:'',lastComment:'',updateLog:[{status:statusVal,comment:'Task created',by:ST.profile.name,at:createdAt}]};
   }
 
   function doSave(url,name){
@@ -1328,13 +1498,35 @@ window.saveMyTask=function(mid,mi){
   var file=fileInput&&fileInput.files[0]?fileInput.files[0]:null;
   var prevStatus=m.minutes[mi].task.status;
   m.minutes[mi].task.status=ss.value;
-  if(cs&&cs.value.trim()) m.minutes[mi].task.lastComment=cs.value.trim();
+  var newComment=cs&&cs.value.trim()?cs.value.trim():'';
+  // Always keep lastComment as latest for backwards compat
+  if(newComment) m.minutes[mi].task.lastComment=newComment;
+  // Never overwrite — append to thread (handled in updateLog below)
+  // Check for deadline change
+  var dlInput=document.getElementById('dl-'+mid+'-'+mi);
+  var oldDeadline=m.minutes[mi].task.deadline||'';
+  var newDeadline=dlInput?dlInput.value:oldDeadline;
+  var deadlineChanged=dlInput&&newDeadline!==oldDeadline;
+  if(deadlineChanged) m.minutes[mi].task.deadline=newDeadline;
   m.minutes[mi].task.lastUpdatedBy=ST.profile.name;
+  // Build log entry
+  var logEntry={
+    status:ss.value,
+    comment:newComment,
+    by:ST.profile.name,
+    at:new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})
+  };
+  if(deadlineChanged) logEntry.deadlineChanged='Deadline updated to '+fmtD(newDeadline);
+  // Append to update log for history
+  if(!m.minutes[mi].task.updateLog) m.minutes[mi].task.updateLog=[];
+  m.minutes[mi].task.updateLog.push(logEntry);
 
   function doSave(url,name){
     if(url){m.minutes[mi].attachmentUrl=url;m.minutes[mi].attachmentName=name;}
     saveMeeting(m).then(function(){
-      toast('Status updated to "'+ss.value+'"!','ok');
+      toast('✅ Update saved — "'+ss.value+'"!','ok');
+      // Clear comment box so user can add fresh update next time
+      if(cs) cs.value='';
       if(ss.value==='completed'&&prevStatus!=='completed'){
         var mgrs=getMgrEmails();
         if(mgrs.length){
@@ -1828,7 +2020,7 @@ window.sendMOMEmail=function(){
   (noteLines?'══════════════════════════════════\nNOTES\n══════════════════════════════════\n'+noteLines+'\n\n':'')+
   (taskLines?'══════════════════════════════════\nTASK ASSIGNMENTS\n══════════════════════════════════\n'+taskLines+'\n\n':'')+
   'Please complete your assigned tasks before the deadline.\n\nRegards,\nNTF India — MeetTrack System';
-  openGmail(toList,subj,body);
+  showMailPicker(toList,subj,body);
   toast('Opening Gmail with MOM for all attendees...','ok');
 };
 
@@ -2125,7 +2317,7 @@ window.sendEmpReminder=function(email,name){
   var lines=tasks.map(function(t,i){return (i+1)+'. '+t.text+' ('+t.meeting+')\n   Deadline: '+fmtD(t.deadline)+' | Status: '+t.status;}).join('\n\n');
   var subj='[NTF MeetTrack] Pending Tasks Reminder — '+name;
   var body='Dear '+name+',\n\nThis is a reminder about your pending tasks in NTF MeetTrack:\n\n'+(lines||'No pending tasks found.')+'\n\nPlease update the status at the earliest.\n\nRegards,\nNTF India Management';
-  openGmail(email,subj,body);
+  showMailPicker(email,subj,body);
   toast('Opening Gmail reminder for '+name,'ok');
 };
 
@@ -2309,7 +2501,7 @@ function showModal(title,fields,saveLbl,onSave){
   }).join('')+
   '<div class="modal-actions"><button class="btn btn-gy btn-sm" id="modal-cancel">Cancel</button><button class="btn btn-or btn-sm" id="modal-save">'+saveLbl+'</button></div></div>';
   document.body.appendChild(d);
-  d.querySelector('#modal-cancel').onclick=function(){d.remove();};
+
   d.querySelector('#modal-save').onclick=function(){
     var v={};d.querySelectorAll('.modal-inp').forEach(function(i){v[i.dataset.k]=i.value.trim();});
     d.remove();onSave(v);
