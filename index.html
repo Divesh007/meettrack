@@ -245,7 +245,7 @@ function fmtD(d){ if(!d) return 'Not set'; try{ return new Date(d).toLocaleDateS
 function isOv(d,s){ return d && s!=='completed' && new Date(d) < new Date(); }
 function isLateCompleted(t){ return t && t.status==='completed' && t.deadline && t.completedAt && t.completedAt > t.deadline; }
 function wasLate(t){ return t && t.status==='completed' && t.completedLate===true; }
-function canM(){ return ST.profile && (ST.profile.role==='director'||ST.profile.role==='boss'); } // boss kept for backward compat with existing accounts
+function canM(){ return ST.profile && (ST.profile.role==='director'||ST.profile.role==='boss'); } // boss kept for existing accounts
 function canEditMeeting(m){ return m && (m.createdByUid===ST.user.uid || canM()); }
 function getMgrEmails(){ return ST.allUsers.filter(function(u){return u.role==='boss'||u.role==='director';}).map(function(u){return u.email;}).filter(Boolean); }
 function getAttendeeOptions(m){
@@ -275,6 +275,7 @@ function uploadFile(file){
   });
 }
 function downloadFile(url,name){
+  if(url.startsWith('http')||url.startsWith('https')||url.startsWith('mailto')){window.open(url,'_blank');return;}
   if(!url)return;
   if(url.startsWith('data:image')){
     var w=window.open('','_blank');
@@ -383,9 +384,15 @@ function filterMeetingsForUser(all){
   if(ST.profile.role==='director'||ST.profile.role==='boss') return all;
   var myEmail=ST.profile.email;
   var myUid=ST.user.uid;
+  // HOD: if user is HOD of any team, they see ALL meetings in that team (including past ones)
+  var hodTeamIds=ST.teams
+    .filter(function(t){return t.hods&&t.hods.indexOf(myEmail)>=0;})
+    .map(function(t){return t.id;});
   return all.filter(function(m){
     if(m.createdByUid===myUid) return true;
-    return (m.attendees||[]).some(function(a){ return a.email===myEmail; });
+    if((m.attendees||[]).some(function(a){return a.email===myEmail;})) return true;
+    if(hodTeamIds.length>0&&hodTeamIds.indexOf(m.teamId)>=0) return true;
+    return false;
   });
 }
 function saveMeeting(m){
@@ -729,6 +736,7 @@ function internalPage(){
     '<div style="font-size:26px;margin-bottom:8px">'+(t.icon||'👥')+'</div>'+
     '<div style="font-size:13px;font-weight:700;color:#0f1535">'+t.name+'</div>'+
     '<div style="font-size:11px;color:#888;margin-top:3px">'+cnt+' meeting(s)</div>'+
+    (t.hods&&t.hods.length?'<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:3px">'+t.hods.map(function(hodEmail,hi){var u=ST.allUsers.find(function(x){return x.email===hodEmail;});var n=u?u.name:(t.hodNames&&t.hodNames[hi])||hodEmail;return '<span style="background:#fff7ed;border:1px solid #fed7aa;border-radius:20px;padding:1px 8px;font-size:10px;font-weight:600;color:#c2410c">👑 '+n+'</span>';}).join('')+'</div>':'')+
     '</div>';
   }).join('')+'</div>';
 }
@@ -831,7 +839,8 @@ function meetingPage(){
       var ov=t&&isOv(t.deadline,t.status);
       var attachHTML='';
       if(mn.attachmentUrl){
-        attachHTML='<button onclick="window._dlAtt(this)" data-url="__URL__" data-name="__NAME__" class="attachment-link" style="cursor:pointer;border:none">📎 __DNAME__</button>'.replace('__URL__',encodeURIComponent(mn.attachmentUrl||'')).replace('__NAME__',encodeURIComponent(mn.attachmentName||'attachment')).replace('__DNAME__',mn.attachmentName||'View/Download');
+        var attIsLink=mn.attachmentUrl&&(mn.attachmentUrl.startsWith('http')||mn.attachmentUrl.startsWith('mailto'));
+        attachHTML='<button onclick="window._dlAtt(this)" data-url="__URL__" data-name="__NAME__" class="attachment-link" style="cursor:pointer;border:none">'+(attIsLink?'🔗':'📎')+' __DNAME__</button>'.replace('__URL__',encodeURIComponent(mn.attachmentUrl||'')).replace('__NAME__',encodeURIComponent(mn.attachmentName||'attachment')).replace('__DNAME__',mn.attachmentName||'View/Download');
       }
       return '<div class="min-item">'+
       '<div class="min-header">'+
@@ -842,7 +851,11 @@ function meetingPage(){
       (isAssign&&t?
       '<div class="min-body">'+
       '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">'+
-      '<div><div class="field-label">Assigned To</div><div style="font-size:12px;font-weight:600">'+(t.assignee||'Not assigned')+'</div></div>'+
+      '<div><div class="field-label">Assigned To</div>'+
+      (t.assignees&&t.assignees.length>1
+        ?'<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:3px">'+t.assignees.map(function(a){return '<span style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:600;color:#1e40af">👤 '+a.name+'</span>';}).join('')+'</div>'
+        :'<div style="font-size:12px;font-weight:600">'+(t.assignee||'—')+'</div>'
+      )+'</div>'+
       '<div><div class="field-label">Deadline</div><div style="font-size:12px;color:'+(ov?'#dc2626':'#111')+';font-weight:'+(ov?700:400)+'">'+fmtD(t.deadline)+(ov?' ⚠':'')+'</div></div>'+
       '<div><div class="field-label">Status</div><span class="badge '+(t.status==='pending'?'b-pending':t.status==='ongoing'?'b-ongoing':'b-completed')+'">'+t.status.toUpperCase()+'</span>'+
       (t&&t.completedLate?' <span style="background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700">⚠ After Deadline</span>':'')+
@@ -979,10 +992,19 @@ function meetingPage(){
   '</div>'+
   '</div>'+
   '<div style="margin-bottom:12px">'+
-  '<div class="field-label" style="margin-bottom:5px">📎 Attach File (optional)</div>'+
+  '<div class="field-label" style="margin-bottom:5px">📎 Attach File or 🔗 Link (optional)</div>'+
+  '<div style="display:flex;gap:0;margin-bottom:6px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">'+
+  '<button type="button" id="att-tab-file" onclick="switchAttTab(\'file\')" style="flex:1;padding:7px;border:none;cursor:pointer;font-size:12px;font-weight:700;background:#0f1535;color:#fff;font-family:inherit">📁 File</button>'+
+  '<button type="button" id="att-tab-link" onclick="switchAttTab(\'link\')" style="flex:1;padding:7px;border:none;cursor:pointer;font-size:12px;font-weight:700;background:#f9fafb;color:#6b7280;font-family:inherit">🔗 Link / URL</button>'+
+  '</div>'+
+  '<div id="att-file-section">'+
   '<div class="file-upload-area" onclick="document.getElementById(\'min-file\').click()">'+
   '<input type="file" id="min-file" accept="*/*">'+
-  '<div id="min-file-label" style="font-size:12px;color:#6b7280">Click to attach a file</div>'+
+  '<div id="min-file-label" style="font-size:12px;color:#6b7280">Click or drag to attach any file (max 900KB)</div>'+
+  '</div></div>'+
+  '<div id="att-link-section" style="display:none">'+
+  '<input class="inp" id="min-attach-link" type="url" placeholder="Paste any URL — Google Drive, SharePoint, email, website..." style="margin-bottom:6px">'+
+  '<input class="inp" id="min-attach-link-name" type="text" placeholder="Label for the link (e.g. Project Report)">'+
   '</div>'+
   '</div>'+
   '<button class="btn btn-or" onclick="addMinute()" style="width:100%;justify-content:center">➕ Add Minute</button>'+
@@ -996,7 +1018,7 @@ function myTasksPage(){
   var all=[];
   ST.meetings.forEach(function(m){
     (m.minutes||[]).forEach(function(mn,i){
-      if(mn.type==='assign'&&mn.task&&mn.task.assigneeEmail===me){
+      if(mn.type==='assign'&&mn.task&&(mn.task.assigneeEmail===me||(mn.task.assignees&&mn.task.assignees.some(function(a){return a.email===me;})))){
         all.push(Object.assign({},mn.task,{
           mi:i, mid:m.id,
           minuteText:mn.text,
@@ -1169,7 +1191,7 @@ function dashPage(){
   ms.forEach(function(m){
     (m.minutes||[]).forEach(function(mn){
       if(mn.type==='assign'&&mn.task){
-        at.push(Object.assign({},mn.task,{ref:m.type==='internal'?m.teamName:m.clientName,mid:m.id,meetingName:m.meetingName||'Untitled'}));
+        at.push(Object.assign({},mn.task,{ref:m.type==='internal'?m.teamName:m.clientName,mid:m.id,meetingName:m.meetingName||'Untitled',minuteText:mn.text||''}));
       }
     });
   });
@@ -1291,25 +1313,88 @@ window.newMeeting=function(){
 };
 
 // Teams
-window.addTeam=function(){
-  showModal('Add New Team',[{k:'name',l:'Team Name',ph:'e.g. Design'},{k:'icon',l:'Emoji Icon',ph:'e.g. 🎨',v:'📋'}],'Add Team',function(v){
-    if(!v.name){toast('Enter team name','err');return;}
-    db.collection('teams').add({name:v.name,icon:v.icon||'📋'}).then(function(r){
-      ST.teams.push({id:r.id,name:v.name,icon:v.icon||'📋'});
-      toast('Team "'+v.name+'" added!','ok');render();
-    });
-  });
-};
+window.addTeam=function(){ showTeamModal(null); };
+
 window.editTeam=function(id){
   var t=ST.teams.find(function(x){return x.id===id;});
-  showModal('Edit Team',[{k:'name',l:'Team Name',v:t.name},{k:'icon',l:'Emoji Icon',v:t.icon}],'Update',function(v){
-    if(!v.name) return;
-    db.collection('teams').doc(id).update({name:v.name,icon:v.icon||t.icon}).then(function(){
-      var i=ST.teams.findIndex(function(x){return x.id===id;});
-      ST.teams[i]=Object.assign({},ST.teams[i],{name:v.name,icon:v.icon||t.icon});
-      ST.meetings.filter(function(m){return m.teamId===id;}).forEach(function(m){m.teamName=v.name;});
-      toast('Team updated!','ok');render();
+  if(t) showTeamModal(t);
+};
+
+window.showTeamModal=function(existingTeam){
+  document.querySelectorAll('.modal-bg').forEach(function(el){el.remove();});
+  var isEdit=!!existingTeam;
+  var d=document.createElement('div'); d.className='modal-bg';
+  var empList=ST.allUsers.filter(function(u){return u.role==='employee'||u.role==='director';});
+  var checkboxRows=empList.map(function(u){
+    var sel=isEdit&&existingTeam.hods&&existingTeam.hods.indexOf(u.email)>=0;
+    return '<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;border-radius:6px;font-size:13px;background:'+(sel?'#fff7ed':'')+'" class="hod-row">'+
+      '<input type="checkbox" class="hod-cb" value="'+u.email+'" data-name="'+u.name+'" '+(sel?'checked':'')+' style="width:15px;height:15px;accent-color:#e8600a;flex-shrink:0">'+
+      '<span style="font-weight:600">'+u.name+'</span>'+
+      '<span style="font-size:11px;color:#9ca3af;margin-left:2px">('+u.role+')</span>'+
+      '</label>';
+  }).join('');
+  d.innerHTML='<div class="modal-card" style="max-width:430px">'+
+    '<div class="modal-title">'+(isEdit?'✏ Edit Team':'➕ Add New Team')+'</div>'+
+    '<div class="modal-field"><label>Team Name</label><input class="inp" id="tm-name" placeholder="e.g. Design" value="'+(isEdit?existingTeam.name:'')+'"></div>'+
+    '<div class="modal-field"><label>Emoji Icon</label><input class="inp" id="tm-icon" placeholder="e.g. 🎨" value="'+(isEdit?existingTeam.icon:'📋')+'"></div>'+
+    '<div class="modal-field">'+
+      '<label>👑 Head of Department (HOD)'+
+        '<span style="font-size:11px;font-weight:400;color:#9ca3af;margin-left:6px">HOD sees all meetings in this team</span>'+
+      '</label>'+
+      '<input class="inp" id="hod-search" placeholder="🔍 Search by name..." style="margin-bottom:6px;font-size:12px" oninput="filterHodList(this.value)">'+
+      '<div id="hod-cb-list" style="max-height:140px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;padding:4px;background:#fff">'+checkboxRows+'</div>'+
+      '<div id="hod-preview" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:7px;min-height:18px"></div>'+
+    '</div>'+
+    '<div class="modal-actions">'+
+      '<button class="btn btn-gy btn-sm" id="tm-cancel">Cancel</button>'+
+      '<button class="btn btn-or btn-sm" id="tm-save">'+(isEdit?'Update Team':'Add Team')+'</button>'+
+    '</div></div>';
+  document.body.appendChild(d);
+
+  // Update preview chips when checkbox changes
+  function refreshPreview(){
+    var checked=Array.from(d.querySelectorAll('.hod-cb:checked'));
+    d.querySelector('#hod-preview').innerHTML=checked.map(function(cb){
+      return '<span style="background:#fff7ed;border:1px solid #fed7aa;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:600;color:#c2410c">👑 '+cb.getAttribute('data-name')+'</span>';
+    }).join('');
+    d.querySelectorAll('.hod-row').forEach(function(row){
+      var cb=row.querySelector('.hod-cb');
+      row.style.background=cb&&cb.checked?'#fff7ed':'';
     });
+  }
+  refreshPreview();
+  d.addEventListener('change',function(e){ if(e.target.classList.contains('hod-cb')) refreshPreview(); });
+
+  d.querySelector('#tm-cancel').onclick=function(){d.remove();};
+  d.onclick=function(e){if(e.target===d)d.remove();};
+
+  d.querySelector('#tm-save').onclick=function(){
+    var name=(d.querySelector('#tm-name')||{}).value||''; name=name.trim();
+    var icon=(d.querySelector('#tm-icon')||{}).value||'📋';
+    if(!name){toast('Enter team name','err');return;}
+    var hods=Array.from(d.querySelectorAll('.hod-cb:checked')).map(function(cb){return cb.value;});
+    var hodNames=Array.from(d.querySelectorAll('.hod-cb:checked')).map(function(cb){return cb.getAttribute('data-name');});
+    if(isEdit){
+      db.collection('teams').doc(existingTeam.id).update({name:name,icon:icon,hods:hods,hodNames:hodNames}).then(function(){
+        var idx=ST.teams.findIndex(function(x){return x.id===existingTeam.id;});
+        ST.teams[idx]=Object.assign({},ST.teams[idx],{name:name,icon:icon,hods:hods,hodNames:hodNames});
+        ST.meetings.filter(function(m){return m.teamId===existingTeam.id;}).forEach(function(m){m.teamName=name;});
+        toast('Team updated!','ok'); d.remove(); render();
+      });
+    } else {
+      db.collection('teams').add({name:name,icon:icon,hods:hods,hodNames:hodNames}).then(function(r){
+        ST.teams.push({id:r.id,name:name,icon:icon,hods:hods,hodNames:hodNames});
+        toast('Team "'+name+'" added! '+(hods.length?hods.length+' HOD(s) set.':''),'ok');
+        d.remove(); render();
+      });
+    }
+  };
+};
+
+window.filterHodList=function(val){
+  var q=val.toLowerCase().trim();
+  document.querySelectorAll('#hod-cb-list .hod-row').forEach(function(row){
+    row.style.display=(q===''||row.textContent.toLowerCase().includes(q))?'':'none';
   });
 };
 window.delTeam=function(id){
@@ -1410,12 +1495,33 @@ window.previewProof=function(inp,lblId){
 };
 
 // Add Minute
+
+window.switchAttTab=function(tab){
+  var fb=document.getElementById('att-tab-file');
+  var lb=document.getElementById('att-tab-link');
+  var fs=document.getElementById('att-file-section');
+  var ls=document.getElementById('att-link-section');
+  if(!fb)return;
+  if(tab==='file'){
+    fb.style.background='#0f1535';fb.style.color='#fff';
+    lb.style.background='#f9fafb';lb.style.color='#6b7280';
+    if(fs)fs.style.display='';if(ls)ls.style.display='none';
+  } else {
+    lb.style.background='#0f1535';lb.style.color='#fff';
+    fb.style.background='#f9fafb';fb.style.color='#6b7280';
+    if(fs)fs.style.display='none';if(ls)ls.style.display='';
+  }
+};
 window.addMinute=function(){
   var text=(document.getElementById('min-input')||{}).value||'';
   text=text.trim();
   if(!text){toast('Type the minute text first','err');return;}
   var typeEl=document.querySelector('input[name="mintype"]:checked');
   var type=typeEl?typeEl.value:'note';
+  var linkInput=document.getElementById('min-attach-link');
+  var linkNameInput=document.getElementById('min-attach-link-name');
+  var attachLink=linkInput&&linkInput.value.trim()?linkInput.value.trim():'';
+  var attachLinkName=linkNameInput&&linkNameInput.value.trim()?linkNameInput.value.trim():attachLink;
   var fileInput=document.getElementById('min-file');
   var file=fileInput&&fileInput.files[0]?fileInput.files[0]:null;
 
@@ -1435,24 +1541,19 @@ window.addMinute=function(){
       : (asel?Array.from(asel.selectedOptions).filter(function(o){return o.value;}):[]);
     if(!selectedOpts.length){toast('Select at least one person to assign','err');return;}
     var createdAt=new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
-    if(selectedOpts.length>1){
-      selectedOpts.forEach(function(opt){
-        var mn2={text:text,type:'assign',addedBy:ST.profile.name,addedAt:today(),attachmentUrl:'',attachmentName:''};
-        mn2.task={assignee:opt.text,assigneeEmail:opt.value,deadline:deadline,status:statusVal,lastUpdatedBy:'',lastComment:'',updateLog:[{status:statusVal,comment:'Task created',by:ST.profile.name,at:createdAt}]};
-        if(!ST.cur.minutes) ST.cur.minutes=[];
-        ST.cur.minutes.push(mn2);
-      });
-      saveMeeting(ST.cur).then(function(){
-        toast('Task assigned to '+selectedOpts.length+' people! ✅','ok');
-        document.querySelectorAll('.modal-bg').forEach(function(m){m.remove();});
-        render();
-      }).catch(function(e){toast('Error: '+e.message,'err');}); return;
-    }
-    var assigneeEmail=selectedOpts[0].value; var assigneeName=selectedOpts[0].text;
-    minObj.task={assignee:assigneeName,assigneeEmail:assigneeEmail,deadline:deadline,status:statusVal,lastUpdatedBy:'',lastComment:'',updateLog:[{status:statusVal,comment:'Task created',by:ST.profile.name,at:createdAt}]};
+    var assigneesArr=selectedOpts.map(function(o){return {email:o.value,name:o.text};});
+    var assigneeEmail=assigneesArr[0].value; var assigneeName=assigneesArr[0].text;
+    minObj.task={
+      assignee:assigneesArr.length>1?assigneesArr.map(function(a){return a.name;}).join(', '):assigneeName,
+      assigneeEmail:assigneeEmail,
+      assignees:assigneesArr,
+      deadline:deadline,status:statusVal,lastUpdatedBy:'',lastComment:'',
+      updateLog:[{status:statusVal,comment:'Task created',by:ST.profile.name,at:createdAt}]
+    };
   }
 
   function doSave(url,name){
+    if(attachLink){url=attachLink;name=attachLinkName||attachLink;}
     if(url){minObj.attachmentUrl=url;minObj.attachmentName=name;}
     if(!ST.cur.minutes) ST.cur.minutes=[];
     ST.cur.minutes.push(minObj);
@@ -2077,14 +2178,15 @@ function buildEmpMap(period){
   ST.allUsers.filter(function(u){return u.role==='employee';}).forEach(function(u){
     empMap[u.email]={name:u.name,email:u.email,total:0,completed:0,pending:0,ongoing:0,overdue:0,lateCompleted:0};
   });
-  ST.meetings.forEach(function(m){
+  // ✅ Use period-filtered meetings not all ST.meetings
+  filtered.forEach(function(m){
     (m.minutes||[]).forEach(function(mn){
       if(mn.type!=='assign'||!mn.task) return;
       var t=mn.task; var email=t.assigneeEmail||'';
-      if(!empMap[email]) empMap[email]={name:t.assignee||email,email:email,total:0,completed:0,pending:0,ongoing:0,overdue:0};
+      if(!empMap[email]) empMap[email]={name:t.assignee||email,email:email,total:0,completed:0,pending:0,ongoing:0,overdue:0,lateCompleted:0};
       var e=empMap[email];
       e.total++;
-      if(t.status==='completed'){e.completed++; if(t.completedLate) e.lateCompleted++;}
+      if(t.status==='completed'){e.completed++;if(t.completedLate)e.lateCompleted++;}
       else if(t.status==='ongoing') e.ongoing++;
       else e.pending++;
       if(isOv(t.deadline,t.status)) e.overdue++;
@@ -2125,7 +2227,7 @@ function perfDetailPanel(selEmail,empMap){
     return (m.attendees||[]).some(function(a){return a.email===selEmail;});
   });
   var empTasks=[];
-  ST.meetings.forEach(function(m){
+  filtered.forEach(function(m){
     (m.minutes||[]).forEach(function(mn){
       if(mn.type==='assign'&&mn.task&&mn.task.assigneeEmail===selEmail){
         empTasks.push({text:mn.text,status:mn.task.status,deadline:mn.task.deadline,meetingName:m.meetingName||'Untitled',mid:m.id});
@@ -2195,7 +2297,7 @@ function perfDetailPanel(selEmail,empMap){
 }
 
 function performancePage(){
-  if(!canM()) return '<div style="padding:3rem;text-align:center;color:#aaa;background:#fff;border-radius:14px;border:1px solid #e5e7eb"><div style="font-size:40px;margin-bottom:12px">🔒</div><div style="font-size:16px;font-weight:700;color:#0f1535">Access Restricted</div><div style="font-size:13px;color:#888;margin-top:6px">Only Directors and Boss can view employee performance</div></div>';
+  if(!canM()) return '<div style="padding:3rem;text-align:center;color:#aaa;background:#fff;border-radius:14px;border:1px solid #e5e7eb"><div style="font-size:40px;margin-bottom:12px">🔒</div><div style="font-size:16px;font-weight:700;color:#0f1535">Access Restricted</div><div style="font-size:13px;color:#888;margin-top:6px">Only Directors can view employee performance</div></div>';
   var empMap=buildEmpMap();
   var emps=Object.values(empMap);
   var q=(ST.perfSearch||'').toLowerCase();
